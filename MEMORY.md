@@ -11,6 +11,12 @@
 
 ### Search
 
+- `Blocks` 使用和 X-Ray 相同的多选方块列表界面, 支持同时搜索多个方块。
+- 增加 `Show block textures` 开关, 开启后只提交搜索目标的原始方块材质, 不改变其他方块透明度。
+- 开启 `Show block textures` 时隐藏原本的彩色闪烁方框层, 只保留材质显示。
+- Search 材质层使用 `FULL_BRIGHT` 单独提亮目标方块, 不修改全局 Gamma, 其他方块保持原版亮度。
+- Search 材质模型通过 Fabric/Iris 标准提交入口发送到原版 `cutoutMovingBlock` 方块纹理层, 避免实体材质层产生白边。
+- 彩色方框和材质渲染共用完整的不可变结果快照, 搜索缓存异步重建期间不会读取正在变化的匹配集合。
 - 增加 `Only show exposed` 设置。
 - X-Ray 和 Search 共用 `BlockUtils.isExposed(BlockPos)`。
 - 区块加载、区块卸载、方块更新和区块数据更新会触发相关渲染缓存刷新。
@@ -28,7 +34,7 @@
 
 - 增加 `Normal` 和 `Safe` 模式。
 - `Safe` 只处理 `BoatEntity`, 使用渐进加速和速度上限。
-- Safe 档位为 `Conservative`、`Balanced`、`Aggressive`。
+- Safe 档位重新分配为: `Conservative=(1.5, 1.5, 0.05, 0.05)`、`Balanced=(3.0, 3.0, 0.10, 0.10)`、`Aggressive=(5.0, 5.0, 0.20, 0.20)`, 顺序为水平上限、垂直上限、水平加速度、垂直加速度。
 - `Safe` 现在可通过 `Ascent Ticks` 和 `Break Ticks` 设置上升周期与打断持续时间, 默认分别为 35 和 1 ticks。
 - 打断阶段使用极轻微下降 (`-0.01`), 替代之前的 3 ticks 硬清零, 然后允许下一轮上升。
 - Safe 的上升计时和中性阶段会在载具接触地面或水面后重置。

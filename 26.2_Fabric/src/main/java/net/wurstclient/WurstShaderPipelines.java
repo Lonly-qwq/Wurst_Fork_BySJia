@@ -17,6 +17,9 @@ import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderPipeline.Snippet;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 
+import com.mojang.blaze3d.platform.CompareOp;
+
+import net.minecraft.client.renderer.BindGroupLayouts;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 
@@ -79,4 +82,31 @@ public enum WurstShaderPipelines
 		.register(RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
 			.withLocation(Identifier.parse("wurst:pipeline/wurst_esp_quads"))
 			.withDepthStencilState(Optional.empty()).withCull(false).build());
+	
+	private static final Snippet SEARCH_BLOCKS_SNIPPET =
+		RenderPipeline.builder().withBindGroupLayout(BindGroupLayouts.GLOBALS)
+			.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+			.withBindGroupLayout(BindGroupLayouts.SAMPLER0_SAMPLER2)
+			// Search textures are an opaque inspection overlay. Blending here
+			// makes
+			// iteration's ray-traced intermediate color reduce the texture to a
+			// nearly transparent result when the camera is inside a block.
+			.withColorTargetState(ColorTargetState.DEFAULT)
+			.withVertexBinding(0, DefaultVertexFormat.ENTITY)
+			.withPrimitiveTopology(PrimitiveTopology.QUADS).buildSnippet();
+	
+	/**
+	 * A textured, full-bright block overlay with no depth test. Iris is
+	 * assigned
+	 * to the block program at runtime by WurstRenderLayers.
+	 */
+	public static final RenderPipeline SEARCH_BLOCKS =
+		RenderPipelines.register(RenderPipeline.builder(SEARCH_BLOCKS_SNIPPET)
+			.withLocation(Identifier.parse("wurst:pipeline/search_blocks"))
+			.withVertexShader(Identifier.parse("minecraft:core/entity"))
+			.withFragmentShader(Identifier.parse("minecraft:core/entity"))
+			.withDepthStencilState(
+				new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+			.withCull(false).build());
+	
 }

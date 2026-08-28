@@ -10,6 +10,7 @@ package net.wurstclient.hacks;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ForkJoinPool;
@@ -21,8 +22,13 @@ import com.mojang.blaze3d.PrimitiveTopology;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.block.BlockModelRenderState;
+import net.minecraft.client.renderer.block.dispatch.BlockStateModel;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.wurstclient.Category;
 import net.wurstclient.SearchTags;
 import net.wurstclient.WurstRenderLayers;
@@ -30,7 +36,7 @@ import net.wurstclient.events.ChunkUpdateListener;
 import net.wurstclient.events.RenderListener;
 import net.wurstclient.events.UpdateListener;
 import net.wurstclient.hack.Hack;
-import net.wurstclient.settings.BlockSetting;
+import net.wurstclient.settings.BlockListSetting;
 import net.wurstclient.settings.CheckboxSetting;
 import net.wurstclient.settings.ChunkAreaSetting;
 import net.wurstclient.settings.SliderSetting;
@@ -51,9 +57,17 @@ public final class SearchHack extends Hack
 {
 	private static final int EXPOSED_CHECKS_PER_TICK = 1024;
 	
-	private final BlockSetting block = new BlockSetting("Block",
-		"The type of block to search for.", "minecraft:diamond_ore", false);
-	private Block lastBlock;
+	private final BlockListSetting blocks = new BlockListSetting("Blocks",
+		"The blocks to search for. You can select multiple blocks.",
+		"minecraft:diamond_ore");
+	private ArrayList<String> lastBlocks;
+	
+	private final CheckboxSetting showTextures = new CheckboxSetting(
+		"Show block textures",
+		"Shows matching blocks with their original textures without making other"
+			+ " blocks transparent.",
+		false);
+	private boolean prevShowTextures;
 	
 	private final CheckboxSetting onlyExposed =
 		new CheckboxSetting("Only show exposed",
@@ -81,6 +95,7 @@ public final class SearchHack extends Hack
 	private ForkJoinTask<ArrayList<int[]>> compileVerticesTask;
 	private ArrayList<BlockPos> candidateBlocks;
 	private final HashSet<BlockPos> matchingBlocks = new HashSet<>();
+	private volatile List<BlockPos> renderBlocksSnapshot = List.of();
 	private int candidateIndex;
 	private int lastCompletedSearcherCount;
 	private volatile long buildGeneration;
@@ -96,7 +111,8 @@ public final class SearchHack extends Hack
 	{
 		super("Search");
 		setCategory(Category.RENDER);
-		addSetting(block);
+		addSetting(blocks);
+		addSetting(showTextures);
 		addSetting(onlyExposed);
 		addSetting(area);
 		addSetting(limit);
@@ -105,16 +121,16 @@ public final class SearchHack extends Hack
 	@Override
 	public String getRenderName()
 	{
-		return getName() + " [" + block.getBlockName().replace("minecraft:", "")
-			+ "]";
+		return getName() + " [" + blocks.size() + "]";
 	}
 	
 	@Override
 	protected void onEnable()
 	{
-		lastBlock = block.getBlock();
-		coordinator.setTargetBlock(lastBlock);
+		lastBlocks = new ArrayList<>(blocks.getBlockNames());
+		coordinator.setQuery(this::matchesBlock);
 		prevOnlyExposed = onlyExposed.isChecked();
+		prevShowTextures = showTextures.isChecked();
 		prevLimit = limit.getValueI();
 		notify = true;
 		
@@ -143,6 +159,7 @@ public final class SearchHack extends Hack
 			vertexBuffer.close();
 		vertexBuffer = null;
 		bufferRegion = null;
+		renderBlocksSnapshot = List.of();
 	}
 	
 	@Override
@@ -150,12 +167,13 @@ public final class SearchHack extends Hack
 	{
 		boolean searchersChanged = false;
 		
-		// clear ChunkSearchers if block has changed
-		Block currentBlock = block.getBlock();
-		if(currentBlock != lastBlock)
+		// clear ChunkSearchers if the block list has changed
+		ArrayList<String> currentBlocks =
+			new ArrayList<>(blocks.getBlockNames());
+		if(!currentBlocks.equals(lastBlocks))
 		{
-			lastBlock = currentBlock;
-			coordinator.setTargetBlock(lastBlock);
+			lastBlocks = currentBlocks;
+			coordinator.setQuery(this::matchesBlock);
 			searchersChanged = true;
 		}
 		
@@ -171,6 +189,11 @@ public final class SearchHack extends Hack
 		{
 			prevOnlyExposed = onlyExposed.isChecked();
 			searchersChanged = true;
+		}
+		if(showTextures.isChecked() != prevShowTextures)
+		{
+			prevShowTextures = showTextures.isChecked();
+			MC.levelExtractor.allChanged();
 		}
 		
 		// check if limit has changed
@@ -210,9 +233,57 @@ public final class SearchHack extends Hack
 			setBufferFromTask();
 	}
 	
+	private boolean matchesBlock(BlockPos pos, BlockState state)
+	{
+		return blocks.contains(state.getBlock());
+	}
+	
+	public void submitTextureModels(PoseStack matrixStack,
+		SubmitNodeCollector collector, CameraRenderState camera)
+	{
+		if(!isEnabled() || !showTextures.isChecked() || MC.level == null)
+			return;
+		RenderType searchLayer = WurstRenderLayers.getSearchBlocks();
+		
+		for(BlockPos pos : renderBlocksSnapshot)
+		{
+			BlockState state = MC.level.getBlockState(pos);
+			if(!matchesBlock(pos, state))
+				continue;
+			
+			BlockStateModel model =
+				MC.getModelManager().getBlockStateModelSet().get(state);
+			BlockModelRenderState renderState = new BlockModelRenderState();
+			java.util.List<net.minecraft.client.renderer.block.dispatch.BlockStateModelPart> parts =
+				renderState.setupModel(new org.joml.Matrix4f(), false);
+			model.collectParts(
+				renderState.scratchRandomSource(state.getSeed(pos)), parts);
+			// Match X-Ray's bright target rendering without changing global
+			// gamma.
+			renderState.blockLightCoords =
+				net.minecraft.util.LightCoordsUtil.FULL_BRIGHT;
+			int[] tintLayers = renderState.tintLayers().toIntArray();
+			
+			matrixStack.pushPose();
+			matrixStack.translate(pos.getX() - camera.pos.x(),
+				pos.getY() - camera.pos.y(), pos.getZ() - camera.pos.z());
+			// Use the vanilla collector method directly. The Fabric convenience
+			// method maps its boolean argument to a vanilla layer and does not
+			// forward a custom RenderType; Sodium's compatibility path can also
+			// receive a null layer there.
+			collector.submitBlockModel(matrixStack, searchLayer, parts,
+				tintLayers, net.minecraft.util.LightCoordsUtil.FULL_BRIGHT, 0,
+				0xFFFFFFFF);
+			matrixStack.popPose();
+		}
+	}
+	
 	@Override
 	public void onRender(PoseStack matrixStack, float partialTicks)
 	{
+		if(showTextures.isChecked())
+			return;
+		
 		if(vertexBuffer == null || bufferRegion == null)
 			return;
 		
@@ -371,6 +442,7 @@ public final class SearchHack extends Hack
 					vertexBuffer.close();
 				vertexBuffer = null;
 				bufferRegion = null;
+				renderBlocksSnapshot = List.of();
 			}
 			bufferUpToDate = true;
 			return;
@@ -380,6 +452,7 @@ public final class SearchHack extends Hack
 		
 		if(vertexBuffer != null)
 			vertexBuffer.close();
+		renderBlocksSnapshot = List.copyOf(matchingBlocks);
 		
 		vertexBuffer = EasyVertexBuffer.createAndUpload(PrimitiveTopology.QUADS,
 			DefaultVertexFormat.POSITION_COLOR, buffer -> {

@@ -43,6 +43,7 @@
     "LanguageManagerMixin",
     "LevelMixin",
     "LevelRendererMixin",
+    "SearchSubmitNodeCollectionMixin",
     "LivingEntityMixin",
     "LocalPlayerMixin",
     "MinecraftMixin",

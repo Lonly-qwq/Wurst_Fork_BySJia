@@ -20,13 +20,27 @@ import com.mojang.blaze3d.vertex.PoseStack;
 
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.renderer.LevelRenderer;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.wurstclient.event.EventManager;
+import net.wurstclient.WurstClient;
 import net.wurstclient.events.RenderListener.RenderEvent;
 
 @Mixin(LevelRenderer.class)
 public class LevelRendererMixin
 {
+	@Inject(
+		method = "submitFeatures(Lnet/minecraft/client/renderer/state/level/LevelRenderState;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V",
+		at = @At("HEAD"))
+	private void submitSearchTextures(LevelRenderState levelRenderState,
+		SubmitNodeCollector collector, boolean renderEntityOutlines,
+		CallbackInfo ci)
+	{
+		WurstClient.INSTANCE.getHax().searchHack.submitTextureModels(
+			new PoseStack(), collector, levelRenderState.cameraRenderState);
+	}
+	
 	@Inject(
 		method = "render(Lcom/mojang/blaze3d/resource/GraphicsResourceAllocator;Lnet/minecraft/client/DeltaTracker;ZLnet/minecraft/client/renderer/state/level/CameraRenderState;Lorg/joml/Matrix4fc;Lcom/mojang/blaze3d/buffers/GpuBufferSlice;Lorg/joml/Vector4f;Z)V",
 		at = @At("RETURN"))

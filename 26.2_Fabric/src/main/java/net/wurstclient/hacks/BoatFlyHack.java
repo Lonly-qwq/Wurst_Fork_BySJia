@@ -221,9 +221,9 @@ public final class BoatFlyHack extends Hack implements UpdateListener
 	
 	private enum SafeProfile
 	{
-		CONSERVATIVE("Conservative", 1.2, 0.10, 0.05, 0.05),
-		BALANCED("Balanced", 1.6, 0.14, 0.08, 0.08),
-		AGGRESSIVE("Aggressive", 2.0, 0.18, 0.11, 0.11);
+		CONSERVATIVE("Conservative", 1.5, 1.5, 0.05, 0.05),
+		BALANCED("Balanced", 3.0, 3.0, 0.10, 0.10),
+		AGGRESSIVE("Aggressive", 5.0, 5.0, 0.20, 0.20);
 		
 		private final String name;
 		private final double horizontalCap;
