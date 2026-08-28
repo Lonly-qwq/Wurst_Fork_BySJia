@@ -23,6 +23,8 @@ import net.wurstclient.settings.SliderSetting;
 	"entity speed"})
 public final class BoatFlyHack extends Hack implements UpdateListener
 {
+	private static final double SAFE_BREAK_SPEED = 0.01;
+	
 	private final EnumSetting<Mode> mode = new EnumSetting<>("Mode",
 		"Normal keeps the original BoatFly behavior. Safe only applies to boats"
 			+ " and uses capped, smooth movement to reduce abnormal motion.",
@@ -34,6 +36,12 @@ public final class BoatFlyHack extends Hack implements UpdateListener
 				+ " setting does nothing in Normal mode.",
 			SafeProfile.values(), SafeProfile.BALANCED);
 	
+	private final SliderSetting ascentTicks = new SliderSetting("Ascent Ticks",
+		35, 1, 100, 1, SliderSetting.ValueDisplay.INTEGER.withSuffix(" ticks"));
+	
+	private final SliderSetting breakTicks = new SliderSetting("Break Ticks", 1,
+		1, 10, 1, SliderSetting.ValueDisplay.INTEGER.withSuffix(" ticks"));
+	
 	private final CheckboxSetting changeForwardSpeed = new CheckboxSetting(
 		"Change Forward Speed",
 		"Allows \u00a7eForward Speed\u00a7r to be changed, disables smooth acceleration.",
@@ -44,6 +52,8 @@ public final class BoatFlyHack extends Hack implements UpdateListener
 	
 	private final SliderSetting upwardSpeed = new SliderSetting("Upward Speed",
 		0.3, 0, 5, 0.05, SliderSetting.ValueDisplay.DECIMAL);
+	private int safeAscentTickCount;
+	private int safeBreakTickCount;
 	
 	public BoatFlyHack()
 	{
@@ -51,6 +61,8 @@ public final class BoatFlyHack extends Hack implements UpdateListener
 		setCategory(Category.MOVEMENT);
 		addSetting(mode);
 		addSetting(safeProfile);
+		addSetting(ascentTicks);
+		addSetting(breakTicks);
 		addSetting(changeForwardSpeed);
 		addSetting(forwardSpeed);
 		addSetting(upwardSpeed);
@@ -59,6 +71,8 @@ public final class BoatFlyHack extends Hack implements UpdateListener
 	@Override
 	protected void onEnable()
 	{
+		safeAscentTickCount = 0;
+		safeBreakTickCount = 0;
 		EVENTS.add(UpdateListener.class, this);
 	}
 	
@@ -66,6 +80,8 @@ public final class BoatFlyHack extends Hack implements UpdateListener
 	protected void onDisable()
 	{
 		EVENTS.remove(UpdateListener.class, this);
+		safeAscentTickCount = 0;
+		safeBreakTickCount = 0;
 	}
 	
 	@Override
@@ -116,6 +132,12 @@ public final class BoatFlyHack extends Hack implements UpdateListener
 		
 		SafeProfile profile = safeProfile.getSelected();
 		Vec3 velocity = vehicle.getDeltaMovement();
+		boolean grounded = vehicle.onGround() || vehicle.isInWater();
+		if(grounded)
+		{
+			safeAscentTickCount = 0;
+			safeBreakTickCount = 0;
+		}
 		
 		double targetX = velocity.x;
 		double targetZ = velocity.z;
@@ -136,20 +158,34 @@ public final class BoatFlyHack extends Hack implements UpdateListener
 			targetZ = Mth.cos(yawRad) * speed;
 		}
 		
+		boolean neutralPhase = safeBreakTickCount > 0;
 		double targetY;
-		if(MC.options.keyJump.isDown())
+		if(safeBreakTickCount > 0)
+		{
+			// A tiny downward tick breaks the server's continuous ascent check
+			// without producing the more visible hard stop at zero velocity.
+			targetY = -Math.min(SAFE_BREAK_SPEED, profile.verticalCap);
+			safeBreakTickCount--;
+			if(safeBreakTickCount == 0)
+				safeAscentTickCount = 0;
+		}else if(MC.options.keyJump.isDown())
+		{
 			targetY = Math.min(upwardSpeed.getValue(), profile.verticalCap);
-		else if(MC.options.keySprint.isDown())
+			if(!grounded
+				&& ++safeAscentTickCount >= (int)ascentTicks.getValue())
+				safeBreakTickCount = (int)breakTicks.getValue();
+		}else if(MC.options.keySprint.isDown())
 			targetY = -profile.verticalCap;
 		else
 			targetY = Math.min(velocity.y, 0);
-		
 		targetY = Mth.clamp(targetY, -profile.verticalCap, profile.verticalCap);
 		
 		double motionX =
 			approach(velocity.x, targetX, profile.horizontalAcceleration);
 		double motionY =
 			approach(velocity.y, targetY, profile.verticalAcceleration);
+		if(neutralPhase)
+			motionY = targetY;
 		double motionZ =
 			approach(velocity.z, targetZ, profile.horizontalAcceleration);
 		vehicle.setDeltaMovement(motionX, motionY, motionZ);
