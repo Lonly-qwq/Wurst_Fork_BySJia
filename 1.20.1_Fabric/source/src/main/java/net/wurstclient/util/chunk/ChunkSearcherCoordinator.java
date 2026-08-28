@@ -30,16 +30,20 @@ public final class ChunkSearcherCoordinator extends AbstractChunkCoordinator
 	}
 	
 	@Override
-	public void onReceivedPacket(PacketInputEvent event)
+	public void onChunkUpdated(ChunkPos chunkPos)
 	{
-		ChunkPos chunkPos = ChunkUtils.getAffectedChunk(event.getPacket());
-		
-		if(chunkPos != null)
-			chunksToUpdate.add(chunkPos);
+		chunksToUpdate.add(chunkPos);
 	}
 	
 	public Stream<Result> getMatches()
 	{
-		return searchers.values().stream().flatMap(ChunkSearcher::getMatches);
+		return getSearchersSnapshot().stream()
+			.flatMap(ChunkSearcher::getMatches);
+	}
+	
+	public Stream<Result> getCompletedMatches()
+	{
+		return getSearchersSnapshot().stream().filter(ChunkSearcher::isDone)
+			.flatMap(ChunkSearcher::getMatches);
 	}
 }

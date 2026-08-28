@@ -28,7 +28,7 @@ import net.minecraft.world.SpawnHelper;
 import net.wurstclient.Category;
 import net.wurstclient.SearchTags;
 import net.wurstclient.WurstRenderLayers;
-import net.wurstclient.events.PacketInputListener;
+import net.wurstclient.events.ChunkUpdateListener;
 import net.wurstclient.events.RenderListener;
 import net.wurstclient.events.UpdateListener;
 import net.wurstclient.hack.Hack;
@@ -91,7 +91,7 @@ public final class MobSpawnEspHack extends Hack
 	protected void onEnable()
 	{
 		EVENTS.add(UpdateListener.class, this);
-		EVENTS.add(PacketInputListener.class, coordinator);
+		EVENTS.add(ChunkUpdateListener.class, coordinator);
 		EVENTS.add(RenderListener.class, this);
 		
 		cachedDayColor = dayColor.getColorI();
@@ -102,7 +102,7 @@ public final class MobSpawnEspHack extends Hack
 	protected void onDisable()
 	{
 		EVENTS.remove(UpdateListener.class, this);
-		EVENTS.remove(PacketInputListener.class, coordinator);
+		EVENTS.remove(ChunkUpdateListener.class, coordinator);
 		EVENTS.remove(RenderListener.class, this);
 		
 		coordinator.reset();

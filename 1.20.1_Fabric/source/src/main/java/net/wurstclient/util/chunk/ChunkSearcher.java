@@ -10,9 +10,11 @@ package net.wurstclient.util.chunk;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.BiPredicate;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import net.minecraft.block.BlockState;
@@ -31,18 +33,26 @@ public final class ChunkSearcher
 		MinPriorityThreadFactory.newFixedThreadPool();
 	
 	private final BiPredicate<BlockPos, BlockState> query;
+	private final Predicate<BlockState> sectionPredicate;
 	private final Chunk chunk;
 	private final DimensionType dimension;
 	
-	private CompletableFuture<ArrayList<Result>> future;
-	private boolean interrupted;
+	private volatile CompletableFuture<ArrayList<Result>> future;
+	private volatile boolean interrupted;
 	
 	public ChunkSearcher(BiPredicate<BlockPos, BlockState> query, Chunk chunk,
 		DimensionType dimension)
 	{
+		this(query, chunk, dimension, null);
+	}
+	
+	public ChunkSearcher(BiPredicate<BlockPos, BlockState> query, Chunk chunk,
+		DimensionType dimension, Predicate<BlockState> sectionPredicate)
+	{
 		this.query = query;
 		this.chunk = chunk;
 		this.dimension = dimension;
+		this.sectionPredicate = sectionPredicate;
 	}
 	
 	public void start()
@@ -57,6 +67,25 @@ public final class ChunkSearcher
 	private ArrayList<Result> searchNow()
 	{
 		ArrayList<Result> results = new ArrayList<>();
+		if(sectionPredicate != null)
+		{
+			try
+			{
+				chunk.forEachBlockMatchingPredicate(sectionPredicate,
+					(pos, state) -> {
+						if(interrupted
+							|| Thread.currentThread().isInterrupted())
+							throw new SearchCancelledException();
+						if(query.test(pos, state))
+							results.add(new Result(new BlockPos(pos), state));
+					});
+			}catch(SearchCancelledException e)
+			{
+				// Return the results found before cancellation.
+			}
+			return results;
+		}
+		
 		ChunkPos chunkPos = chunk.getPos();
 		
 		int minX = chunkPos.getStartX();
@@ -70,7 +99,7 @@ public final class ChunkSearcher
 			for(int y = minY; y <= maxY; y++)
 				for(int z = minZ; z <= maxZ; z++)
 				{
-					if(interrupted)
+					if(interrupted || Thread.currentThread().isInterrupted())
 						return results;
 					
 					BlockPos pos = new BlockPos(x, y, z);
@@ -90,7 +119,7 @@ public final class ChunkSearcher
 			return;
 		
 		interrupted = true;
-		future.cancel(false);
+		future.cancel(true);
 	}
 	
 	public boolean isInterrupted()
@@ -110,18 +139,23 @@ public final class ChunkSearcher
 	
 	public Stream<Result> getMatches()
 	{
-		if(future == null || future.isCancelled())
-			return Stream.empty();
-		
-		return future.join().stream();
+		return getMatchesList().stream();
 	}
 	
 	public List<Result> getMatchesList()
 	{
-		if(future == null || future.isCancelled())
+		CompletableFuture<ArrayList<Result>> currentFuture = future;
+		if(currentFuture == null || currentFuture.isCancelled())
 			return List.of();
 		
-		return Collections.unmodifiableList(future.join());
+		try
+		{
+			return Collections.unmodifiableList(currentFuture.join());
+			
+		}catch(CancellationException e)
+		{
+			return List.of();
+		}
 	}
 	
 	public boolean isDone()
@@ -130,5 +164,8 @@ public final class ChunkSearcher
 	}
 	
 	public record Result(BlockPos pos, BlockState state)
+	{}
+	
+	private static final class SearchCancelledException extends RuntimeException
 	{}
 }

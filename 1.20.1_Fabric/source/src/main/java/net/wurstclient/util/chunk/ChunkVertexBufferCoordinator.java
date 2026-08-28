@@ -43,12 +43,8 @@ public final class ChunkVertexBufferCoordinator extends AbstractChunkCoordinator
 	}
 	
 	@Override
-	public void onReceivedPacket(PacketInputEvent event)
+	public void onChunkUpdated(ChunkPos center)
 	{
-		ChunkPos center = ChunkUtils.getAffectedChunk(event.getPacket());
-		if(center == null)
-			return;
-		
 		for(int x = center.x - 1; x <= center.x + 1; x++)
 			for(int z = center.z - 1; z <= center.z + 1; z++)
 				chunksToUpdate.add(new ChunkPos(x, z));

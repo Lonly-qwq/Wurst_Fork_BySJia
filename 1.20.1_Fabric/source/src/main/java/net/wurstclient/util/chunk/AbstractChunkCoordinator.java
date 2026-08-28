@@ -9,11 +9,14 @@ package net.wurstclient.util.chunk;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiPredicate;
+import java.util.function.Predicate;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -22,15 +25,16 @@ import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.dimension.DimensionType;
 import net.wurstclient.WurstClient;
-import net.wurstclient.events.PacketInputListener;
+import net.wurstclient.events.ChunkUpdateListener;
 import net.wurstclient.settings.ChunkAreaSetting;
 
-public abstract class AbstractChunkCoordinator implements PacketInputListener
+public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 {
-	protected final HashMap<ChunkPos, ChunkSearcher> searchers =
-		new HashMap<>();
+	protected final ConcurrentHashMap<ChunkPos, ChunkSearcher> searchers =
+		new ConcurrentHashMap<>();
 	protected final ChunkAreaSetting area;
 	private BiPredicate<BlockPos, BlockState> query;
+	private Predicate<BlockState> sectionPredicate;
 	
 	protected final Set<ChunkPos> chunksToUpdate =
 		Collections.synchronizedSet(new HashSet<>());
@@ -75,16 +79,25 @@ public abstract class AbstractChunkCoordinator implements PacketInputListener
 			}
 		}
 		
+		// Add chunks closest to the player first, so the first partial result
+		// is
+		// useful even when a large area is still being scanned.
+		ChunkPos center = WurstClient.MC.player.getChunkPos();
+		ArrayList<Chunk> chunks = area.getChunksInRange();
+		chunks.sort(Comparator.comparingInt(
+			chunk -> ChunkUtils.getManhattanDistance(center, chunk.getPos())));
+		
 		// add new ChunkSearchers
-		for(Chunk chunk : area.getChunksInRange())
+		for(Chunk chunk : chunks)
 		{
 			ChunkPos chunkPos = chunk.getPos();
 			if(searchers.containsKey(chunkPos))
 				continue;
 			
-			ChunkSearcher searcher = new ChunkSearcher(query, chunk, dimension);
-			searchers.put(chunkPos, searcher);
+			ChunkSearcher searcher =
+				new ChunkSearcher(query, chunk, dimension, sectionPredicate);
 			searcher.start();
+			searchers.put(chunkPos, searcher);
 			searchersChanged = true;
 		}
 		
@@ -94,6 +107,27 @@ public abstract class AbstractChunkCoordinator implements PacketInputListener
 	protected void onRemove(ChunkSearcher searcher)
 	{
 		// Overridden in ChunkVertexBufferCoordinator
+	}
+	
+	@Override
+	public void onChunkUpdated(ChunkPos chunkPos)
+	{
+		chunksToUpdate.add(chunkPos);
+	}
+	
+	public List<ChunkSearcher> getSearchersSnapshot()
+	{
+		return List.copyOf(searchers.values());
+	}
+	
+	public int getCompletedSearcherCount()
+	{
+		int completed = 0;
+		for(ChunkSearcher searcher : searchers.values())
+			if(searcher.isDone())
+				completed++;
+			
+		return completed;
 	}
 	
 	public void reset()
@@ -111,6 +145,7 @@ public abstract class AbstractChunkCoordinator implements PacketInputListener
 	public void setQuery(BiPredicate<BlockPos, BlockState> query)
 	{
 		this.query = Objects.requireNonNull(query);
+		sectionPredicate = null;
 		searchers.values().forEach(ChunkSearcher::cancel);
 		searchers.clear();
 	}
@@ -118,6 +153,7 @@ public abstract class AbstractChunkCoordinator implements PacketInputListener
 	public void setTargetBlock(Block block)
 	{
 		setQuery((pos, state) -> block == state.getBlock());
+		sectionPredicate = state -> block == state.getBlock();
 	}
 	
 	protected HashSet<ChunkPos> clearChunksToUpdate()

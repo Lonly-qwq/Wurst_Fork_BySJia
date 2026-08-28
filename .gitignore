@@ -3,3 +3,8 @@
 /1.20.1_Fabric/unpacked/
 /1.20.1_Fabric/decompiled/
 
+# 26.2 build inputs and generated files
+/26.2_Fabric/.gradle/
+/26.2_Fabric/build/
+/Wurst-Client-v7.55-MC26.2-sources.jar
+/Wurst-Client-v7.55-MC26.2.jar

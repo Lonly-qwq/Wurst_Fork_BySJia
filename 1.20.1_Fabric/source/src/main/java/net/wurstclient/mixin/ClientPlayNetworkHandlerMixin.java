@@ -29,8 +29,10 @@ import net.minecraft.network.packet.s2c.play.ChunkDeltaUpdateS2CPacket;
 import net.minecraft.network.packet.s2c.play.ServerMetadataS2CPacket;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.util.math.ChunkPos;
 import net.wurstclient.WurstClient;
 import net.wurstclient.event.EventManager;
+import net.wurstclient.events.ChunkUpdateListener.ChunkUpdateEvent;
 import net.wurstclient.events.PacketOutputListener.PacketOutputEvent;
 import net.wurstclient.util.ChatUtils;
 
@@ -88,6 +90,7 @@ public abstract class ClientPlayNetworkHandlerMixin
 	private void onLoadChunk(int x, int z, ChunkData chunkData, CallbackInfo ci)
 	{
 		WurstClient.INSTANCE.getHax().newChunksHack.afterLoadChunk(x, z);
+		EventManager.fire(new ChunkUpdateEvent(new ChunkPos(x, z)));
 	}
 	
 	@Inject(at = @At("TAIL"),
@@ -96,6 +99,7 @@ public abstract class ClientPlayNetworkHandlerMixin
 	{
 		WurstClient.INSTANCE.getHax().newChunksHack
 			.afterUpdateBlock(packet.getPos());
+		EventManager.fire(new ChunkUpdateEvent(new ChunkPos(packet.getPos())));
 	}
 	
 	@Inject(at = @At("TAIL"),
@@ -106,5 +110,6 @@ public abstract class ClientPlayNetworkHandlerMixin
 		packet.visitUpdates(
 			(pos, state) -> WurstClient.INSTANCE.getHax().newChunksHack
 				.afterUpdateBlock(pos));
+		EventManager.fire(new ChunkUpdateEvent(packet.sectionPos.toChunkPos()));
 	}
 }

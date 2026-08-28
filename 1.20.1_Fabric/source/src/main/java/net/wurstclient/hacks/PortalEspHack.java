@@ -20,7 +20,7 @@ import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.wurstclient.Category;
 import net.wurstclient.events.CameraTransformViewBobbingListener;
-import net.wurstclient.events.PacketInputListener;
+import net.wurstclient.events.ChunkUpdateListener;
 import net.wurstclient.events.RenderListener;
 import net.wurstclient.events.UpdateListener;
 import net.wurstclient.hack.Hack;
@@ -97,7 +97,7 @@ public final class PortalEspHack extends Hack implements UpdateListener,
 		groupsUpToDate = false;
 		
 		EVENTS.add(UpdateListener.class, this);
-		EVENTS.add(PacketInputListener.class, coordinator);
+		EVENTS.add(ChunkUpdateListener.class, coordinator);
 		EVENTS.add(CameraTransformViewBobbingListener.class, this);
 		EVENTS.add(RenderListener.class, this);
 	}
@@ -106,7 +106,7 @@ public final class PortalEspHack extends Hack implements UpdateListener,
 	protected void onDisable()
 	{
 		EVENTS.remove(UpdateListener.class, this);
-		EVENTS.remove(PacketInputListener.class, coordinator);
+		EVENTS.remove(ChunkUpdateListener.class, coordinator);
 		EVENTS.remove(CameraTransformViewBobbingListener.class, this);
 		EVENTS.remove(RenderListener.class, this);
 		

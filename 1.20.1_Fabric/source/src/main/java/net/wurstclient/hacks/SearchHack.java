@@ -10,9 +10,12 @@ package net.wurstclient.hacks;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.mojang.blaze3d.platform.GlConst;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -25,7 +28,7 @@ import net.minecraft.util.math.BlockPos;
 import net.wurstclient.Category;
 import net.wurstclient.SearchTags;
 import net.wurstclient.WurstRenderLayers;
-import net.wurstclient.events.PacketInputListener;
+import net.wurstclient.events.ChunkUpdateListener;
 import net.wurstclient.events.RenderListener;
 import net.wurstclient.events.UpdateListener;
 import net.wurstclient.hack.Hack;
@@ -48,6 +51,8 @@ import net.wurstclient.util.chunk.ChunkSearcherCoordinator;
 public final class SearchHack extends Hack
 	implements UpdateListener, RenderListener
 {
+	private static final int EXPOSED_CHECKS_PER_TICK = 1024;
+	
 	private final BlockSetting block = new BlockSetting("Block",
 		"The type of block to search for.", "minecraft:diamond_ore", false);
 	private Block lastBlock;
@@ -74,8 +79,16 @@ public final class SearchHack extends Hack
 		new ChunkSearcherCoordinator(area);
 	
 	private ForkJoinPool forkJoinPool;
-	private ForkJoinTask<HashSet<BlockPos>> getMatchingBlocksTask;
+	private ForkJoinTask<ArrayList<BlockPos>> getMatchingBlocksTask;
 	private ForkJoinTask<ArrayList<int[]>> compileVerticesTask;
+	private ArrayList<BlockPos> candidateBlocks;
+	private final HashSet<BlockPos> matchingBlocks = new HashSet<>();
+	private int candidateIndex;
+	private int lastCompletedSearcherCount;
+	private volatile long buildGeneration;
+	private long compileVerticesTaskGeneration;
+	private boolean compileVerticesTaskComplete;
+	private boolean compileVerticesTaskHasMatches;
 	
 	private EasyVertexBuffer vertexBuffer;
 	private RegionPos bufferRegion;
@@ -110,9 +123,10 @@ public final class SearchHack extends Hack
 		forkJoinPool = new ForkJoinPool();
 		
 		bufferUpToDate = false;
+		lastCompletedSearcherCount = 0;
 		
 		EVENTS.add(UpdateListener.class, this);
-		EVENTS.add(PacketInputListener.class, coordinator);
+		EVENTS.add(ChunkUpdateListener.class, coordinator);
 		EVENTS.add(RenderListener.class, this);
 	}
 	
@@ -120,7 +134,7 @@ public final class SearchHack extends Hack
 	protected void onDisable()
 	{
 		EVENTS.remove(UpdateListener.class, this);
-		EVENTS.remove(PacketInputListener.class, coordinator);
+		EVENTS.remove(ChunkUpdateListener.class, coordinator);
 		EVENTS.remove(RenderListener.class, this);
 		
 		stopBuildingBuffer();
@@ -150,26 +164,33 @@ public final class SearchHack extends Hack
 		if(coordinator.update())
 			searchersChanged = true;
 		
-		if(searchersChanged)
-			stopBuildingBuffer();
-		
-		if(!coordinator.isDone())
-			return;
+		int completedSearcherCount = coordinator.getCompletedSearcherCount();
+		boolean searchProgressed =
+			completedSearcherCount != lastCompletedSearcherCount;
+		lastCompletedSearcherCount = completedSearcherCount;
 		
 		// rebuild the buffer if the exposed-only filter has changed
 		if(onlyExposed.isChecked() != prevOnlyExposed)
 		{
-			stopBuildingBuffer();
 			prevOnlyExposed = onlyExposed.isChecked();
+			searchersChanged = true;
 		}
 		
 		// check if limit has changed
 		if(limit.getValueI() != prevLimit)
 		{
-			stopBuildingBuffer();
 			prevLimit = limit.getValueI();
 			notify = true;
+			searchersChanged = true;
 		}
+		
+		if(searchersChanged)
+			stopBuildingBuffer();
+		else if(searchProgressed)
+			restartBuildingBuffer();
+		
+		if(completedSearcherCount == 0)
+			return;
 		
 		// build the buffer
 		
@@ -177,6 +198,9 @@ public final class SearchHack extends Hack
 			startGetMatchingBlocksTask();
 		
 		if(!getMatchingBlocksTask.isDone())
+			return;
+		
+		if(!prepareMatchingBlocks())
 			return;
 		
 		if(compileVerticesTask == null)
@@ -213,6 +237,16 @@ public final class SearchHack extends Hack
 	
 	private void stopBuildingBuffer()
 	{
+		restartBuildingBuffer();
+		
+		// Keep the last complete buffer visible while the replacement is built.
+		// The new buffer is swapped in atomically by setBufferFromTask().
+	}
+	
+	private void restartBuildingBuffer()
+	{
+		buildGeneration++;
+		
 		if(getMatchingBlocksTask != null)
 			getMatchingBlocksTask.cancel(true);
 		getMatchingBlocksTask = null;
@@ -220,6 +254,10 @@ public final class SearchHack extends Hack
 		if(compileVerticesTask != null)
 			compileVerticesTask.cancel(true);
 		compileVerticesTask = null;
+		
+		candidateBlocks = null;
+		matchingBlocks.clear();
+		candidateIndex = 0;
 		
 		bufferUpToDate = false;
 	}
@@ -230,35 +268,133 @@ public final class SearchHack extends Hack
 		Comparator<BlockPos> comparator =
 			Comparator.comparingInt(pos -> eyesPos.getManhattanDistance(pos));
 		boolean exposedOnly = onlyExposed.isChecked();
+		int limitValue = limit.getValueLog();
+		long taskGeneration = buildGeneration;
 		
-		getMatchingBlocksTask = forkJoinPool.submit(() -> coordinator
-			.getMatches().parallel().map(ChunkSearcher.Result::pos)
-			.filter(pos -> !exposedOnly || BlockUtils.isExposed(pos))
-			.sorted(comparator).limit(limit.getValueLog())
-			.collect(Collectors.toCollection(HashSet::new)));
+		getMatchingBlocksTask =
+			forkJoinPool.submit((Callable<ArrayList<BlockPos>>)() -> {
+				if(taskGeneration != buildGeneration)
+					return new ArrayList<>();
+				
+				Stream<BlockPos> positions =
+					coordinator.getCompletedMatches().parallel()
+						.map(ChunkSearcher.Result::pos).sorted(comparator);
+				
+				// Exposed checks must run on the client thread because they
+				// read the mutable client world. Keep all candidates for that
+				// main-thread pass.
+				if(!exposedOnly)
+					positions = positions.limit(limitValue);
+				
+				return positions
+					.collect(Collectors.toCollection(ArrayList::new));
+			});
+	}
+	
+	private boolean prepareMatchingBlocks()
+	{
+		if(candidateBlocks == null)
+		{
+			try
+			{
+				candidateBlocks = getMatchingBlocksTask.join();
+				
+			}catch(CancellationException e)
+			{
+				getMatchingBlocksTask = null;
+				return false;
+			}
+			
+			candidateIndex = 0;
+			matchingBlocks.clear();
+		}
+		
+		int limitValue = limit.getValueLog();
+		if(!onlyExposed.isChecked())
+		{
+			matchingBlocks.addAll(candidateBlocks);
+			updateNotification(limitValue);
+			return true;
+		}
+		
+		int checks = EXPOSED_CHECKS_PER_TICK;
+		while(candidateIndex < candidateBlocks.size()
+			&& matchingBlocks.size() < limitValue && checks-- > 0)
+		{
+			BlockPos pos = candidateBlocks.get(candidateIndex++);
+			if(BlockUtils.isExposed(pos))
+				matchingBlocks.add(pos);
+		}
+		
+		if(candidateIndex < candidateBlocks.size()
+			&& matchingBlocks.size() < limitValue)
+			return false;
+		
+		updateNotification(limitValue);
+		return true;
+	}
+	
+	private void updateNotification(int limitValue)
+	{
+		if(matchingBlocks.size() < limitValue)
+		{
+			notify = true;
+			return;
+		}
+		
+		if(!notify)
+			return;
+		
+		ChatUtils.warning("Search found \u00a7lA LOT\u00a7r of blocks!"
+			+ " To prevent lag, it will only show the closest \u00a76"
+			+ limit.getValueString() + "\u00a7r results.");
+		notify = false;
 	}
 	
 	private void startCompileVerticesTask()
 	{
-		HashSet<BlockPos> matchingBlocks = getMatchingBlocksTask.join();
+		HashSet<BlockPos> blocks = new HashSet<>(matchingBlocks);
+		long taskGeneration = buildGeneration;
+		compileVerticesTaskGeneration = taskGeneration;
+		compileVerticesTaskComplete = coordinator.isDone();
+		compileVerticesTaskHasMatches = !blocks.isEmpty();
 		
-		if(matchingBlocks.size() < limit.getValueLog())
-			notify = true;
-		else if(notify)
-		{
-			ChatUtils.warning("Search found \u00a7lA LOT\u00a7r of blocks!"
-				+ " To prevent lag, it will only show the closest \u00a76"
-				+ limit.getValueString() + "\u00a7r results.");
-			notify = false;
-		}
-		
-		compileVerticesTask = forkJoinPool
-			.submit(() -> BlockVertexCompiler.compile(matchingBlocks));
+		compileVerticesTask = forkJoinPool.submit(() -> {
+			if(taskGeneration != buildGeneration)
+				return new ArrayList<>();
+			
+			return BlockVertexCompiler.compile(blocks);
+		});
 	}
 	
 	private void setBufferFromTask()
 	{
-		ArrayList<int[]> vertices = compileVerticesTask.join();
+		if(compileVerticesTaskGeneration != buildGeneration)
+			return;
+		
+		ArrayList<int[]> vertices;
+		try
+		{
+			vertices = compileVerticesTask.join();
+			
+		}catch(CancellationException e)
+		{
+			return;
+		}
+		
+		if(!compileVerticesTaskHasMatches)
+		{
+			if(compileVerticesTaskComplete)
+			{
+				if(vertexBuffer != null)
+					vertexBuffer.close();
+				vertexBuffer = null;
+				bufferRegion = null;
+			}
+			bufferUpToDate = true;
+			return;
+		}
+		
 		RegionPos region = RenderUtils.getCameraRegion();
 		
 		if(vertexBuffer != null)
