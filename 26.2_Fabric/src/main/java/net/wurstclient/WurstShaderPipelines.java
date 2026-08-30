@@ -96,15 +96,15 @@ public enum WurstShaderPipelines
 			.withPrimitiveTopology(PrimitiveTopology.QUADS).buildSnippet();
 	
 	/**
-	 * A textured, full-bright block overlay with no depth test. Iris is
-	 * assigned
-	 * to the block program at runtime by WurstRenderLayers.
+	 * A textured block overlay with local gamma correction and no depth test.
+	 * Iris is assigned to the normal block program at runtime.
 	 */
 	public static final RenderPipeline SEARCH_BLOCKS =
 		RenderPipelines.register(RenderPipeline.builder(SEARCH_BLOCKS_SNIPPET)
 			.withLocation(Identifier.parse("wurst:pipeline/search_blocks"))
-			.withVertexShader(Identifier.parse("minecraft:core/entity"))
-			.withFragmentShader(Identifier.parse("minecraft:core/entity"))
+			.withVertexShader(Identifier.parse("wurst:core/search_blocks"))
+			.withFragmentShader(Identifier.parse("wurst:core/search_blocks"))
+			.withShaderDefine("NO_OVERLAY")
 			.withDepthStencilState(
 				new DepthStencilState(CompareOp.ALWAYS_PASS, false))
 			.withCull(false).build());

@@ -16,6 +16,8 @@ import net.minecraft.world.phys.Vec3;
 
 public interface IMultiPlayerGameMode
 {
+	public BlockPos getDestroyBlockPos();
+	
 	public void windowClick_PICKUP(int slot);
 	
 	public void windowClick_QUICK_MOVE(int slot);

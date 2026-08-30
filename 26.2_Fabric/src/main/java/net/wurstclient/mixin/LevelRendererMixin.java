@@ -37,8 +37,8 @@ public class LevelRendererMixin
 		SubmitNodeCollector collector, boolean renderEntityOutlines,
 		CallbackInfo ci)
 	{
-		WurstClient.INSTANCE.getHax().searchHack.submitTextureModels(
-			new PoseStack(), collector, levelRenderState.cameraRenderState);
+		WurstClient.INSTANCE.getHax().searchHack
+			.submitTextureModels(new PoseStack(), collector, levelRenderState);
 	}
 	
 	@Inject(

@@ -44,6 +44,14 @@ public abstract class MultiPlayerGameModeMixin implements IMultiPlayerGameMode
 	@Shadow
 	@Final
 	private Minecraft minecraft;
+	@Shadow
+	private BlockPos destroyBlockPos;
+	
+	@Override
+	public BlockPos getDestroyBlockPos()
+	{
+		return destroyBlockPos;
+	}
 	
 	@Inject(
 		method = "continueDestroyBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;)Z",

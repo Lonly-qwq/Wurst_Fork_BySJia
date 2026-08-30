@@ -23,10 +23,13 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.SubmitNodeCollection;
 import net.minecraft.client.renderer.block.BlockModelRenderState;
 import net.minecraft.client.renderer.block.dispatch.BlockStateModel;
+import net.minecraft.client.renderer.feature.BlockModelFeatureRenderer;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.wurstclient.Category;
@@ -239,11 +242,17 @@ public final class SearchHack extends Hack
 	}
 	
 	public void submitTextureModels(PoseStack matrixStack,
-		SubmitNodeCollector collector, CameraRenderState camera)
+		SubmitNodeCollector collector, LevelRenderState levelRenderState)
 	{
 		if(!isEnabled() || !showTextures.isChecked() || MC.level == null)
 			return;
 		RenderType searchLayer = WurstRenderLayers.getSearchBlocks();
+		CameraRenderState camera = levelRenderState.cameraRenderState;
+		SubmitNodeCollection collection =
+			(SubmitNodeCollection)collector.order(0);
+		BlockPos breakingPos = MC.gameMode.isDestroying()
+			? IMC.getInteractionManager().getDestroyBlockPos() : null;
+		int breakingStage = MC.gameMode.getDestroyStage();
 		
 		for(BlockPos pos : renderBlocksSnapshot)
 		{
@@ -258,10 +267,9 @@ public final class SearchHack extends Hack
 				renderState.setupModel(new org.joml.Matrix4f(), false);
 			model.collectParts(
 				renderState.scratchRandomSource(state.getSeed(pos)), parts);
-			// Match X-Ray's bright target rendering without changing global
-			// gamma.
-			renderState.blockLightCoords =
-				net.minecraft.util.LightCoordsUtil.FULL_BRIGHT;
+			int lightCoords = net.minecraft.util.LightCoordsUtil
+				.getLightCoords(MC.level, pos);
+			renderState.blockLightCoords = lightCoords;
 			int[] tintLayers = renderState.tintLayers().toIntArray();
 			
 			matrixStack.pushPose();
@@ -272,8 +280,21 @@ public final class SearchHack extends Hack
 			// forward a custom RenderType; Sodium's compatibility path can also
 			// receive a null layer there.
 			collector.submitBlockModel(matrixStack, searchLayer, parts,
-				tintLayers, net.minecraft.util.LightCoordsUtil.FULL_BRIGHT, 0,
-				0xFFFFFFFF);
+				tintLayers, lightCoords, 0, 0xFFFFFFFF);
+			if(pos.equals(breakingPos) && breakingStage >= 0
+				&& breakingStage < WurstRenderLayers.SEARCH_DESTROY_TYPES
+					.size())
+			{
+				PoseStack.Pose crackPose = matrixStack.last().copy();
+				collection.afterTerrain
+					.submit(new BlockModelFeatureRenderer.Submit(crackPose,
+						WurstRenderLayers.SEARCH_DESTROY_TYPES
+							.get(breakingStage),
+						List.copyOf(parts), BlockModelRenderState.EMPTY_TINTS,
+						net.minecraft.util.LightCoordsUtil.FULL_BRIGHT,
+						net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY,
+						0, crackPose));
+			}
 			matrixStack.popPose();
 		}
 	}

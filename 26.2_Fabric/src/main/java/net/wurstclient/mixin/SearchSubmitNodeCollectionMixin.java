@@ -31,8 +31,7 @@ public abstract class SearchSubmitNodeCollectionMixin
 		int[] tintLayers, int lightCoords, int overlayCoords, int tintColor,
 		CallbackInfo ci)
 	{
-		if(renderType != WurstRenderLayers.SEARCH_BLOCKS
-			&& renderType != WurstRenderLayers.SEARCH_BLOCKS_VANILLA)
+		if(renderType != WurstRenderLayers.SEARCH_BLOCKS)
 			return;
 		
 		SubmitNodeCollection collection = (SubmitNodeCollection)(Object)this;
@@ -41,4 +40,5 @@ public abstract class SearchSubmitNodeCollectionMixin
 			lightCoords, overlayCoords, tintColor, null));
 		ci.cancel();
 	}
+	
 }

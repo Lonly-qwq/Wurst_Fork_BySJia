@@ -7,11 +7,14 @@
  */
 package net.wurstclient;
 
+import java.util.List;
+
 import net.minecraft.client.renderer.rendertype.LayeringTransform;
 import net.minecraft.client.renderer.rendertype.OutputTarget;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.texture.TextureAtlas;
+import net.minecraft.client.resources.model.ModelBakery;
 
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 
@@ -70,13 +73,8 @@ public enum WurstRenderLayers
 	 * apply the world depth test.
 	 */
 	public static final RenderType SEARCH_BLOCKS = createSearchBlocks();
-	public static final RenderType SEARCH_BLOCKS_VANILLA =
-		RenderType.create("wurst:search_blocks_vanilla",
-			RenderSetup.builder(
-				net.minecraft.client.renderer.RenderPipelines.TEXT_SEE_THROUGH)
-				.withTexture("Sampler0", TextureAtlas.LOCATION_BLOCKS)
-				.setOutline(RenderSetup.OutlineProperty.NONE).sortOnUpload()
-				.createRenderSetup());
+	public static final List<RenderType> SEARCH_DESTROY_TYPES =
+		ModelBakery.DESTROY_TYPES;
 	
 	public static RenderType getSearchBlocks()
 	{
@@ -97,7 +95,8 @@ public enum WurstRenderLayers
 		{
 			// Iris is optional.
 		}
-		return SEARCH_BLOCKS_VANILLA;
+		// Without Iris, the custom fragment shader applies Search-only gamma.
+		return SEARCH_BLOCKS;
 	}
 	
 	private static RenderType createSearchBlocks()
@@ -108,7 +107,7 @@ public enum WurstRenderLayers
 			RenderSetup.builder(pipeline)
 				.withTexture("Sampler0", TextureAtlas.LOCATION_BLOCKS)
 				.setOutline(RenderSetup.OutlineProperty.NONE).sortOnUpload()
-				.createRenderSetup());
+				.useLightmap().createRenderSetup());
 	}
 	
 	private static void registerWithIris(RenderPipeline pipeline)
