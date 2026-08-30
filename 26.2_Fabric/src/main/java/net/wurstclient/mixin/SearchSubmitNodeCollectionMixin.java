@@ -31,7 +31,7 @@ public abstract class SearchSubmitNodeCollectionMixin
 		int[] tintLayers, int lightCoords, int overlayCoords, int tintColor,
 		CallbackInfo ci)
 	{
-		if(renderType != WurstRenderLayers.SEARCH_BLOCKS)
+		if(!WurstRenderLayers.isSearchBlocks(renderType))
 			return;
 		
 		SubmitNodeCollection collection = (SubmitNodeCollection)(Object)this;

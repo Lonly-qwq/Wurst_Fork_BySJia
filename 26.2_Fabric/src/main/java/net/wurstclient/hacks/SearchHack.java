@@ -31,6 +31,7 @@ import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.level.block.state.BlockState;
 import net.wurstclient.Category;
 import net.wurstclient.SearchTags;
@@ -42,6 +43,7 @@ import net.wurstclient.hack.Hack;
 import net.wurstclient.settings.BlockListSetting;
 import net.wurstclient.settings.CheckboxSetting;
 import net.wurstclient.settings.ChunkAreaSetting;
+import net.wurstclient.settings.EnumSetting;
 import net.wurstclient.settings.SliderSetting;
 import net.wurstclient.settings.SliderSetting.ValueDisplay;
 import net.wurstclient.util.BlockUtils;
@@ -59,6 +61,7 @@ public final class SearchHack extends Hack
 	implements UpdateListener, RenderListener
 {
 	private static final int EXPOSED_CHECKS_PER_TICK = 1024;
+	private static final int BALANCED_SHADER_LIGHT_FLOOR = 12;
 	
 	private final BlockListSetting blocks = new BlockListSetting("Blocks",
 		"The blocks to search for. You can select multiple blocks.",
@@ -71,6 +74,20 @@ public final class SearchHack extends Hack
 			+ " blocks transparent.",
 		false);
 	private boolean prevShowTextures;
+	
+	private final EnumSetting<TextureBrightness> textureBrightness =
+		new EnumSetting<>("Texture brightness",
+			"Balanced preserves environmental lighting while preventing Search"
+				+ " textures from becoming too dark.\n"
+				+ "Fullbright uses X-Ray gamma in vanilla and an Iris fullbright"
+				+ " pipeline with adjustable exposure in shader packs.",
+			TextureBrightness.values(), TextureBrightness.FULLBRIGHT);
+	
+	private final SliderSetting fullbrightExposure =
+		new SliderSetting("Fullbright exposure",
+			"Controls Search texture brightness in shader packs when Texture"
+				+ " brightness is set to Fullbright.",
+			0.7, 0.4, 1, 0.05, ValueDisplay.PERCENTAGE);
 	
 	private final CheckboxSetting onlyExposed =
 		new CheckboxSetting("Only show exposed",
@@ -116,6 +133,8 @@ public final class SearchHack extends Hack
 		setCategory(Category.RENDER);
 		addSetting(blocks);
 		addSetting(showTextures);
+		addSetting(textureBrightness);
+		addSetting(fullbrightExposure);
 		addSetting(onlyExposed);
 		addSetting(area);
 		addSetting(limit);
@@ -246,13 +265,24 @@ public final class SearchHack extends Hack
 	{
 		if(!isEnabled() || !showTextures.isChecked() || MC.level == null)
 			return;
-		RenderType searchLayer = WurstRenderLayers.getSearchBlocks();
+		boolean fullbright =
+			textureBrightness.getSelected() == TextureBrightness.FULLBRIGHT;
+		boolean shaderPackInUse = WurstRenderLayers.isShaderPackInUse();
+		RenderType searchLayer =
+			WurstRenderLayers.getSearchBlocks(fullbright, shaderPackInUse);
 		CameraRenderState camera = levelRenderState.cameraRenderState;
 		SubmitNodeCollection collection =
 			(SubmitNodeCollection)collector.order(0);
 		BlockPos breakingPos = MC.gameMode.isDestroying()
 			? IMC.getInteractionManager().getDestroyBlockPos() : null;
 		int breakingStage = MC.gameMode.getDestroyStage();
+		int tintColor = 0xFFFFFFFF;
+		if(shaderPackInUse && fullbright)
+		{
+			int exposure = Math.round(fullbrightExposure.getValueF() * 255);
+			tintColor =
+				0xFF000000 | (exposure << 16) | (exposure << 8) | exposure;
+		}
 		
 		for(BlockPos pos : renderBlocksSnapshot)
 		{
@@ -267,8 +297,11 @@ public final class SearchHack extends Hack
 				renderState.setupModel(new org.joml.Matrix4f(), false);
 			model.collectParts(
 				renderState.scratchRandomSource(state.getSeed(pos)), parts);
-			int lightCoords = net.minecraft.util.LightCoordsUtil
-				.getLightCoords(MC.level, pos);
+			int lightCoords = LightCoordsUtil.getLightCoords(MC.level, pos);
+			if(shaderPackInUse && !fullbright)
+				lightCoords = LightCoordsUtil.withBlock(lightCoords,
+					Math.max(LightCoordsUtil.block(lightCoords),
+						BALANCED_SHADER_LIGHT_FLOOR));
 			renderState.blockLightCoords = lightCoords;
 			int[] tintLayers = renderState.tintLayers().toIntArray();
 			
@@ -280,7 +313,7 @@ public final class SearchHack extends Hack
 			// forward a custom RenderType; Sodium's compatibility path can also
 			// receive a null layer there.
 			collector.submitBlockModel(matrixStack, searchLayer, parts,
-				tintLayers, lightCoords, 0, 0xFFFFFFFF);
+				tintLayers, lightCoords, 0, tintColor);
 			if(pos.equals(breakingPos) && breakingStage >= 0
 				&& breakingStage < WurstRenderLayers.SEARCH_DESTROY_TYPES
 					.size())
@@ -484,5 +517,24 @@ public final class SearchHack extends Hack
 		
 		bufferUpToDate = true;
 		bufferRegion = region;
+	}
+	
+	private enum TextureBrightness
+	{
+		BALANCED("Balanced"),
+		FULLBRIGHT("Fullbright");
+		
+		private final String name;
+		
+		private TextureBrightness(String name)
+		{
+			this.name = name;
+		}
+		
+		@Override
+		public String toString()
+		{
+			return name;
+		}
 	}
 }

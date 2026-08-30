@@ -103,6 +103,19 @@ public enum WurstShaderPipelines
 		RenderPipelines.register(RenderPipeline.builder(SEARCH_BLOCKS_SNIPPET)
 			.withLocation(Identifier.parse("wurst:pipeline/search_blocks"))
 			.withVertexShader(Identifier.parse("wurst:core/search_blocks"))
+			.withFragmentShader(
+				Identifier.parse("wurst:core/search_blocks_balanced"))
+			.withShaderDefine("NO_OVERLAY")
+			.withDepthStencilState(
+				new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+			.withCull(false).build());
+	
+	/** Search overlay using X-Ray's gamma curve or Iris fullbright lighting. */
+	public static final RenderPipeline SEARCH_BLOCKS_FULLBRIGHT =
+		RenderPipelines.register(RenderPipeline.builder(SEARCH_BLOCKS_SNIPPET)
+			.withLocation(
+				Identifier.parse("wurst:pipeline/search_blocks_fullbright"))
+			.withVertexShader(Identifier.parse("wurst:core/search_blocks"))
 			.withFragmentShader(Identifier.parse("wurst:core/search_blocks"))
 			.withShaderDefine("NO_OVERLAY")
 			.withDepthStencilState(

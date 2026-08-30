@@ -72,45 +72,60 @@ public enum WurstRenderLayers
 	 * The see-through pipeline keeps the original atlas texture and does not
 	 * apply the world depth test.
 	 */
-	public static final RenderType SEARCH_BLOCKS = createSearchBlocks();
+	public static final RenderType SEARCH_BLOCKS = createSearchBlocks(
+		"wurst:search_blocks", WurstShaderPipelines.SEARCH_BLOCKS, false);
+	public static final RenderType SEARCH_BLOCKS_FULLBRIGHT =
+		createSearchBlocks("wurst:search_blocks_fullbright",
+			WurstShaderPipelines.SEARCH_BLOCKS_FULLBRIGHT, true);
 	public static final List<RenderType> SEARCH_DESTROY_TYPES =
 		ModelBakery.DESTROY_TYPES;
 	
-	public static RenderType getSearchBlocks()
+	public static RenderType getSearchBlocks(boolean fullbright,
+		boolean shaderPackInUse)
+	{
+		if(shaderPackInUse)
+		{
+			// Re-apply both bindings after shaderpack reloads.
+			registerWithIris(WurstShaderPipelines.SEARCH_BLOCKS, false);
+			registerWithIris(WurstShaderPipelines.SEARCH_BLOCKS_FULLBRIGHT,
+				true);
+		}
+		return fullbright ? SEARCH_BLOCKS_FULLBRIGHT : SEARCH_BLOCKS;
+	}
+	
+	public static boolean isShaderPackInUse()
 	{
 		try
 		{
 			Class<?> apiClass =
 				Class.forName("net.irisshaders.iris.api.v0.IrisApi");
 			Object api = apiClass.getMethod("getInstance").invoke(null);
-			if((Boolean)apiClass.getMethod("isShaderPackInUse").invoke(api))
-			{
-				// Re-apply the binding after shaderpack reloads. Complementary
-				// renders Search correctly through the Iris-compatible
-				// pipeline.
-				registerWithIris(WurstShaderPipelines.SEARCH_BLOCKS);
-				return SEARCH_BLOCKS;
-			}
+			return (Boolean)apiClass.getMethod("isShaderPackInUse").invoke(api);
 		}catch(ReflectiveOperationException | LinkageError e)
 		{
-			// Iris is optional.
+			return false;
 		}
-		// Without Iris, the custom fragment shader applies Search-only gamma.
-		return SEARCH_BLOCKS;
 	}
 	
-	private static RenderType createSearchBlocks()
+	public static boolean isSearchBlocks(RenderType renderType)
 	{
-		RenderPipeline pipeline = WurstShaderPipelines.SEARCH_BLOCKS;
-		registerWithIris(pipeline);
-		return RenderType.create("wurst:search_blocks",
+		return renderType == SEARCH_BLOCKS
+			|| renderType == SEARCH_BLOCKS_FULLBRIGHT;
+	}
+	
+	private static RenderType createSearchBlocks(String name,
+		RenderPipeline pipeline, boolean fullbright)
+	{
+		registerWithIris(pipeline, fullbright);
+		return RenderType.create(name,
 			RenderSetup.builder(pipeline)
 				.withTexture("Sampler0", TextureAtlas.LOCATION_BLOCKS)
 				.setOutline(RenderSetup.OutlineProperty.NONE).sortOnUpload()
 				.useLightmap().createRenderSetup());
 	}
 	
-	private static void registerWithIris(RenderPipeline pipeline)
+	private static void registerWithIris(RenderPipeline pipeline,
+		boolean fullbright)
 	{
 		try
 		{
@@ -119,7 +134,7 @@ public enum WurstRenderLayers
 			Object api = apiClass.getMethod("getInstance").invoke(null);
 			Class<?> programClass =
 				Class.forName("net.irisshaders.iris.api.v0.IrisProgram");
-			if(assignBlockEntityProgram(pipeline))
+			if(assignBlockEntityProgram(pipeline, fullbright))
 				return;
 			
 			Object texturedProgram = findIrisProgram(programClass);
@@ -134,7 +149,8 @@ public enum WurstRenderLayers
 		}
 	}
 	
-	private static boolean assignBlockEntityProgram(RenderPipeline pipeline)
+	private static boolean assignBlockEntityProgram(RenderPipeline pipeline,
+		boolean fullbright)
 	{
 		try
 		{
@@ -145,16 +161,16 @@ public enum WurstRenderLayers
 			java.lang.reflect.Method method = pipelinesClass.getDeclaredMethod(
 				"assignPipeline", RenderPipeline.class, keyClass);
 			method.setAccessible(true);
-			// Use the normal block-entity program. Search already submits a
-			// full-bright lightmap, while the bright/emissive program can make
-			// Complementary either overexpose or discard the texture.
-			for(String name : new String[]{"BLOCK_ENTITY"})
+			String[] names =
+				fullbright ? new String[]{"BLOCK_ENTITY_BRIGHT", "BLOCK_ENTITY"}
+					: new String[]{"BLOCK_ENTITY"};
+			for(String name : names)
 				try
 				{
-					java.lang.reflect.Field brightField =
+					java.lang.reflect.Field keyField =
 						keyClass.getDeclaredField(name);
-					brightField.setAccessible(true);
-					method.invoke(null, pipeline, brightField.get(null));
+					keyField.setAccessible(true);
+					method.invoke(null, pipeline, keyField.get(null));
 					return true;
 				}catch(NoSuchFieldException e)
 				{

@@ -14,8 +14,10 @@
 - `Blocks` 使用和 X-Ray 相同的多选方块列表界面, 支持同时搜索多个方块。
 - 增加 `Show block textures` 开关, 开启后只提交搜索目标的原始方块材质, 不改变其他方块透明度。
 - 开启 `Show block textures` 时隐藏原本的彩色闪烁方框层, 只保留材质显示。
-- Search 材质读取方块真实 lightmap, 原版环境使用专用 fragment shader 做局部 Gamma 提亮, 不再使用 `FULL_BRIGHT`, 也不修改全局 Gamma。
-- Search 材质通过 Fabric/Iris 标准提交入口绘制, Iris 环境绑定普通 `BLOCK_ENTITY` 程序。
+- Search 材质提供 `Balanced` 和 `Fullbright` 两种亮度模式。
+- `Balanced` 在原版环境中对真实 lightmap 做局部 Gamma 提亮; 在 Iris 光影环境中使用普通 `BLOCK_ENTITY` 程序并将方块光最低补到 12, 保留环境明暗关系。
+- `Fullbright` 在原版环境中使用仅作用于 Search 的 X-Ray gamma 16 曲线; 在 Iris 光影环境中优先绑定 `BLOCK_ENTITY_BRIGHT`, 并通过 `Fullbright exposure` 独立调整 Search 材质曝光, 不修改全局 Gamma。
+- Search 材质 shader 完全关闭雾颜色混合, 避免地狱等维度的天空和群系雾色污染材质。
 - Search 材质模式复用原版 0-9 阶段挖掘进度, 使用独立 no-depth 裂纹层在材质之后显示开裂动画。
 - 彩色方框和材质渲染共用完整的不可变结果快照, 搜索缓存异步重建期间不会读取正在变化的匹配集合。
 - 增加 `Only show exposed` 设置。
