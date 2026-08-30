@@ -13,6 +13,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 
 import net.wurstclient.event.Event;
 import net.wurstclient.event.Listener;
+import net.wurstclient.util.RenderUtils;
 
 public interface RenderListener extends Listener
 {
@@ -32,8 +33,17 @@ public interface RenderListener extends Listener
 		@Override
 		public void fire(ArrayList<RenderListener> listeners)
 		{
-			for(RenderListener listener : listeners)
-				listener.onRender(matrixStack, partialTicks);
+			// Entity ESPs append to one batch and submit after all listeners
+			// ran.
+			RenderUtils.beginEspBatch();
+			try
+			{
+				for(RenderListener listener : listeners)
+					listener.onRender(matrixStack, partialTicks);
+			}finally
+			{
+				RenderUtils.endEspBatch();
+			}
 		}
 		
 		@Override

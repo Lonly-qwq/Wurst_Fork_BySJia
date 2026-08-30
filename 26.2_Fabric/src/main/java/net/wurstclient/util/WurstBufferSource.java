@@ -22,10 +22,22 @@ import net.minecraft.client.renderer.rendertype.RenderType;
  */
 public final class WurstBufferSource
 {
-	private final StagedVertexBuffer stagedBuffer = new StagedVertexBuffer(
-		() -> "WurstBufferSource", RenderType.BIG_BUFFER_SIZE);
+	private final StagedVertexBuffer stagedBuffer;
 	private final List<StagedVertexBuffer.Draw> draws = new ArrayList<>();
 	private final List<RenderType> drawTypes = new ArrayList<>();
+	private final boolean reuseBuffers;
+	
+	public WurstBufferSource()
+	{
+		this(false);
+	}
+	
+	public WurstBufferSource(boolean reuseBuffers)
+	{
+		this.reuseBuffers = reuseBuffers;
+		stagedBuffer = new StagedVertexBuffer(() -> "WurstBufferSource",
+			RenderType.BIG_BUFFER_SIZE);
+	}
 	
 	public VertexConsumer getBuffer(RenderType renderType)
 	{
@@ -61,8 +73,20 @@ public final class WurstBufferSource
 		{
 			draws.clear();
 			drawTypes.clear();
-			stagedBuffer.close();
+			if(reuseBuffers)
+				// Keep the pools alive, but recycle frame buffers through the
+				// StagedVertexBuffer lifecycle.
+				stagedBuffer.endFrame();
+			else
+				stagedBuffer.close();
 		}
+	}
+	
+	public void close()
+	{
+		draws.clear();
+		drawTypes.clear();
+		stagedBuffer.close();
 	}
 	
 	private void draw(RenderType type, StagedVertexBuffer.Draw draw)
@@ -70,6 +94,8 @@ public final class WurstBufferSource
 		StagedVertexBuffer.ExecuteInfo info = stagedBuffer.getExecuteInfo(draw);
 		
 		if(info != null)
-			type.prepare().drawFromBuffer(info);
+			
+			if(info != null)
+				type.prepare().drawFromBuffer(info);
 	}
 }

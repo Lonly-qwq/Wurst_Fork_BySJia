@@ -26,6 +26,8 @@ import net.wurstclient.events.UpdateListener;
 import net.wurstclient.hack.Hack;
 import net.wurstclient.settings.EspBoxSizeSetting;
 import net.wurstclient.settings.EspStyleSetting;
+import net.wurstclient.settings.SliderSetting;
+import net.wurstclient.settings.SliderSetting.ValueDisplay;
 import net.wurstclient.settings.filterlists.EntityFilterList;
 import net.wurstclient.settings.filters.*;
 import net.wurstclient.util.EntityUtils;
@@ -38,6 +40,9 @@ public final class MobEspHack extends Hack implements UpdateListener,
 	CameraTransformViewBobbingListener, RenderListener
 {
 	private final EspStyleSetting style = new EspStyleSetting();
+	private final SliderSetting maxRenderDistance = new SliderSetting(
+		"Max render distance", "Maximum distance for rendered mobs.", 128, 16,
+		512, 16, ValueDisplay.INTEGER.withSuffix(" blocks"));
 	
 	private final EspBoxSizeSetting boxSize = new EspBoxSizeSetting(
 		"\u00a7lAccurate\u00a7r mode shows the exact hitbox of each mob.\n"
@@ -74,6 +79,7 @@ public final class MobEspHack extends Hack implements UpdateListener,
 		super("MobESP");
 		setCategory(Category.RENDER);
 		addSetting(style);
+		addSetting(maxRenderDistance);
 		addSetting(boxSize);
 		entityFilters.forEach(this::addSetting);
 	}
@@ -98,10 +104,12 @@ public final class MobEspHack extends Hack implements UpdateListener,
 	public void onUpdate()
 	{
 		mobs.clear();
+		double maxDistanceSq = maxRenderDistance.getValueSq();
 		
 		Stream<LivingEntity> stream =
 			EntityUtils.getAliveEntities(LivingEntity.class)
-				.filter(e -> !(e instanceof Player));
+				.filter(e -> !(e instanceof Player))
+				.filter(e -> e.distanceToSqr(MC.player) <= maxDistanceSq);
 		
 		stream = entityFilters.applyTo(stream);
 		
@@ -128,10 +136,12 @@ public final class MobEspHack extends Hack implements UpdateListener,
 			{
 				AABB box = EntityUtils.getLerpedBox(e, partialTicks)
 					.move(0, extraSize, 0).inflate(extraSize);
+				if(!RenderUtils.isVisible(box))
+					continue;
 				boxes.add(new ColoredBox(box, getColor(e)));
 			}
 			
-			RenderUtils.drawOutlinedBoxes(matrixStack, boxes, false);
+			RenderUtils.drawOutlinedBoxesBatched(matrixStack, boxes, false);
 		}
 		
 		if(style.hasLines())
@@ -144,7 +154,8 @@ public final class MobEspHack extends Hack implements UpdateListener,
 				ends.add(new ColoredPoint(point, getColor(e)));
 			}
 			
-			RenderUtils.drawTracers(matrixStack, partialTicks, ends, false);
+			RenderUtils.drawTracersBatched(matrixStack, partialTicks, ends,
+				false);
 		}
 	}
 	

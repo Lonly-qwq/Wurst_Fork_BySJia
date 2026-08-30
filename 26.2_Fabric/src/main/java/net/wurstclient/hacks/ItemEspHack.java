@@ -25,6 +25,8 @@ import net.wurstclient.hack.Hack;
 import net.wurstclient.settings.ColorSetting;
 import net.wurstclient.settings.EspBoxSizeSetting;
 import net.wurstclient.settings.EspStyleSetting;
+import net.wurstclient.settings.SliderSetting;
+import net.wurstclient.settings.SliderSetting.ValueDisplay;
 import net.wurstclient.util.EntityUtils;
 import net.wurstclient.util.RenderUtils;
 
@@ -33,6 +35,9 @@ public final class ItemEspHack extends Hack implements UpdateListener,
 	CameraTransformViewBobbingListener, RenderListener
 {
 	private final EspStyleSetting style = new EspStyleSetting();
+	private final SliderSetting maxRenderDistance = new SliderSetting(
+		"Max render distance", "Maximum distance for rendered items.", 128, 16,
+		512, 16, ValueDisplay.INTEGER.withSuffix(" blocks"));
 	
 	private final EspBoxSizeSetting boxSize = new EspBoxSizeSetting(
 		"\u00a7lAccurate\u00a7r mode shows the exact hitbox of each item.\n"
@@ -48,6 +53,7 @@ public final class ItemEspHack extends Hack implements UpdateListener,
 		super("ItemESP");
 		setCategory(Category.RENDER);
 		addSetting(style);
+		addSetting(maxRenderDistance);
 		addSetting(boxSize);
 		addSetting(color);
 	}
@@ -72,9 +78,14 @@ public final class ItemEspHack extends Hack implements UpdateListener,
 	public void onUpdate()
 	{
 		items.clear();
+		double maxDistanceSq = maxRenderDistance.getValueSq();
 		for(Entity entity : MC.level.entitiesForRendering())
 			if(entity instanceof ItemEntity)
-				items.add((ItemEntity)entity);
+			{
+				ItemEntity item = (ItemEntity)entity;
+				if(item.distanceToSqr(MC.player) <= maxDistanceSq)
+					items.add(item);
+			}
 	}
 	
 	@Override
@@ -96,10 +107,15 @@ public final class ItemEspHack extends Hack implements UpdateListener,
 			
 			ArrayList<AABB> boxes = new ArrayList<>(items.size());
 			for(ItemEntity e : items)
-				boxes.add(EntityUtils.getLerpedBox(e, partialTicks)
-					.move(0, extraSize, 0).inflate(extraSize));
+			{
+				AABB box = EntityUtils.getLerpedBox(e, partialTicks)
+					.move(0, extraSize, 0).inflate(extraSize);
+				if(RenderUtils.isVisible(box))
+					boxes.add(box);
+			}
 			
-			RenderUtils.drawOutlinedBoxes(matrixStack, boxes, lineColor, false);
+			RenderUtils.drawOutlinedBoxesBatched(matrixStack, boxes, lineColor,
+				false);
 		}
 		
 		if(style.hasLines())
@@ -108,8 +124,8 @@ public final class ItemEspHack extends Hack implements UpdateListener,
 			for(ItemEntity e : items)
 				ends.add(EntityUtils.getLerpedBox(e, partialTicks).getCenter());
 			
-			RenderUtils.drawTracers(matrixStack, partialTicks, ends, lineColor,
-				false);
+			RenderUtils.drawTracersBatched(matrixStack, partialTicks, ends,
+				lineColor, false);
 		}
 	}
 }

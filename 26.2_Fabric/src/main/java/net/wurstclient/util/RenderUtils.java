@@ -37,6 +37,53 @@ public enum RenderUtils
 {
 	;
 	
+	private static WurstBufferSource espBatchSource;
+	private static boolean espBatchActive;
+	
+	public static void beginEspBatch()
+	{
+		if(espBatchActive)
+			throw new IllegalStateException("ESP batch is already active");
+		
+		espBatchActive = true;
+	}
+	
+	public static void endEspBatch()
+	{
+		if(!espBatchActive)
+			return;
+		
+		try
+		{
+			if(espBatchSource != null)
+				espBatchSource.uploadAndDraw();
+		}finally
+		{
+			espBatchActive = false;
+		}
+	}
+	
+	public static void closeEspBatch()
+	{
+		espBatchActive = false;
+		if(espBatchSource == null)
+			return;
+		
+		espBatchSource.close();
+		espBatchSource = null;
+	}
+	
+	private static WurstBufferSource getEspBatchSource()
+	{
+		if(!espBatchActive)
+			return null;
+		
+		if(espBatchSource == null)
+			espBatchSource = new WurstBufferSource(true);
+		
+		return espBatchSource;
+	}
+	
 	public static void applyRegionalRenderOffset(PoseStack matrixStack)
 	{
 		applyRegionalRenderOffset(matrixStack, getCameraRegion());
@@ -174,6 +221,47 @@ public enum RenderUtils
 				end.color());
 		
 		bs.uploadAndDraw();
+	}
+	
+	public static void drawTracersBatched(PoseStack matrices,
+		float partialTicks, List<Vec3> ends, int color, boolean depthTest)
+	{
+		WurstBufferSource bs = getEspBatchSource();
+		if(bs == null)
+		{
+			drawTracers(matrices, partialTicks, ends, color, depthTest);
+			return;
+		}
+		if(ends.isEmpty())
+			return;
+		
+		RenderType layer = WurstRenderLayers.getLines(depthTest);
+		VertexConsumer buffer = bs.getBuffer(layer);
+		Vec3 start = getTracerOrigin(partialTicks);
+		Vec3 offset = getCameraPos().reverse();
+		for(Vec3 end : ends)
+			drawLine(matrices, buffer, start, end.add(offset), color);
+	}
+	
+	public static void drawTracersBatched(PoseStack matrices,
+		float partialTicks, List<ColoredPoint> ends, boolean depthTest)
+	{
+		WurstBufferSource bs = getEspBatchSource();
+		if(bs == null)
+		{
+			drawTracers(matrices, partialTicks, ends, depthTest);
+			return;
+		}
+		if(ends.isEmpty())
+			return;
+		
+		RenderType layer = WurstRenderLayers.getLines(depthTest);
+		VertexConsumer buffer = bs.getBuffer(layer);
+		Vec3 start = getTracerOrigin(partialTicks);
+		Vec3 offset = getCameraPos().reverse();
+		for(ColoredPoint end : ends)
+			drawLine(matrices, buffer, start, end.point().add(offset),
+				end.color());
 	}
 	
 	public static void drawLine(PoseStack matrices, VertexConsumer buffer,
@@ -373,6 +461,25 @@ public enum RenderUtils
 		bs.uploadAndDraw();
 	}
 	
+	public static void drawOutlinedBoxesBatched(PoseStack matrices,
+		List<AABB> boxes, int color, boolean depthTest)
+	{
+		WurstBufferSource bs = getEspBatchSource();
+		if(bs == null)
+		{
+			drawOutlinedBoxes(matrices, boxes, color, depthTest);
+			return;
+		}
+		if(boxes.isEmpty())
+			return;
+		
+		RenderType layer = WurstRenderLayers.getLines(depthTest);
+		VertexConsumer buffer = bs.getBuffer(layer);
+		Vec3 camOffset = getCameraPos().reverse();
+		for(AABB box : boxes)
+			drawOutlinedBox(matrices, buffer, box.move(camOffset), color);
+	}
+	
 	public static void drawOutlinedBoxes(PoseStack matrices,
 		List<ColoredBox> boxes, boolean depthTest)
 	{
@@ -386,6 +493,36 @@ public enum RenderUtils
 				box.color());
 		
 		bs.uploadAndDraw();
+	}
+	
+	public static void drawOutlinedBoxesBatched(PoseStack matrices,
+		List<ColoredBox> boxes, boolean depthTest)
+	{
+		WurstBufferSource bs = getEspBatchSource();
+		if(bs == null)
+		{
+			drawOutlinedBoxes(matrices, boxes, depthTest);
+			return;
+		}
+		if(boxes.isEmpty())
+			return;
+		
+		RenderType layer = WurstRenderLayers.getLines(depthTest);
+		VertexConsumer buffer = bs.getBuffer(layer);
+		Vec3 camOffset = getCameraPos().reverse();
+		for(ColoredBox box : boxes)
+			drawOutlinedBox(matrices, buffer, box.box().move(camOffset),
+				box.color());
+	}
+	
+	public static boolean isVisible(AABB box)
+	{
+		Camera camera = WurstClient.MC.gameRenderer.mainCamera();
+		if(camera == null || !camera.isInitialized()
+			|| camera.getCullFrustum() == null)
+			return true;
+		
+		return camera.getCullFrustum().isVisible(box);
 	}
 	
 	public static void drawOutlinedBox(VertexConsumer buffer, AABB box,

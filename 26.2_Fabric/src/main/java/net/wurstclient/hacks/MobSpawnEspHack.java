@@ -22,6 +22,7 @@ import net.minecraft.world.entity.SpawnPlacements;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.wurstclient.Category;
 import net.wurstclient.SearchTags;
 import net.wurstclient.WurstRenderLayers;
@@ -128,7 +129,15 @@ public final class MobSpawnEspHack extends Hack
 		
 		for(Entry<ChunkPos, EasyVertexBuffer> entry : coordinator.getBuffers())
 		{
-			RegionPos region = RegionPos.of(entry.getKey());
+			ChunkPos chunkPos = entry.getKey();
+			AABB chunkBox =
+				new AABB(chunkPos.getMinBlockX(), MC.level.getMinY(),
+					chunkPos.getMinBlockZ(), chunkPos.getMaxBlockX() + 1,
+					MC.level.getMaxY() + 1, chunkPos.getMaxBlockZ() + 1);
+			if(!RenderUtils.isVisible(chunkBox))
+				continue;
+			
+			RegionPos region = RegionPos.of(chunkPos);
 			
 			matrixStack.pushPose();
 			RenderUtils.applyRegionalRenderOffset(matrixStack, region);

@@ -27,6 +27,8 @@ import net.wurstclient.hack.Hack;
 import net.wurstclient.settings.EspBoxSizeSetting;
 import net.wurstclient.settings.EspStyleSetting;
 import net.wurstclient.settings.EspStyleSetting.EspStyle;
+import net.wurstclient.settings.SliderSetting;
+import net.wurstclient.settings.SliderSetting.ValueDisplay;
 import net.wurstclient.settings.filterlists.EntityFilterList;
 import net.wurstclient.settings.filters.FilterInvisibleSetting;
 import net.wurstclient.settings.filters.FilterSleepingSetting;
@@ -41,7 +43,9 @@ public final class PlayerEspHack extends Hack implements UpdateListener,
 {
 	private final EspStyleSetting style =
 		new EspStyleSetting(EspStyle.LINES_AND_BOXES);
-	
+	private final SliderSetting maxRenderDistance = new SliderSetting(
+		"Max render distance", "Maximum distance for rendered players.", 128,
+		16, 512, 16, ValueDisplay.INTEGER.withSuffix(" blocks"));
 	private final EspBoxSizeSetting boxSize = new EspBoxSizeSetting(
 		"\u00a7lAccurate\u00a7r mode shows the exact hitbox of each player.\n"
 			+ "\u00a7lFancy\u00a7r mode shows slightly larger boxes that look better.");
@@ -57,6 +61,7 @@ public final class PlayerEspHack extends Hack implements UpdateListener,
 		super("PlayerESP");
 		setCategory(Category.RENDER);
 		addSetting(style);
+		addSetting(maxRenderDistance);
 		addSetting(boxSize);
 		entityFilters.forEach(this::addSetting);
 	}
@@ -81,10 +86,12 @@ public final class PlayerEspHack extends Hack implements UpdateListener,
 	public void onUpdate()
 	{
 		players.clear();
+		double maxDistanceSq = maxRenderDistance.getValueSq();
 		
 		Stream<AbstractClientPlayer> stream = MC.level.players()
 			.parallelStream().filter(AbstractClientPlayer::isAlive)
 			.filter(EntityUtils.IS_NOT_SELF)
+			.filter(e -> e.distanceToSqr(MC.player) <= maxDistanceSq)
 			.filter(e -> Math.abs(e.getY() - MC.player.getY()) <= 1e6);
 		
 		stream = entityFilters.applyTo(stream);
@@ -112,10 +119,12 @@ public final class PlayerEspHack extends Hack implements UpdateListener,
 			{
 				AABB box = EntityUtils.getLerpedBox(e, partialTicks)
 					.move(0, extraSize, 0).inflate(extraSize);
+				if(!RenderUtils.isVisible(box))
+					continue;
 				boxes.add(new ColoredBox(box, getColor(e)));
 			}
 			
-			RenderUtils.drawOutlinedBoxes(matrixStack, boxes, false);
+			RenderUtils.drawOutlinedBoxesBatched(matrixStack, boxes, false);
 		}
 		
 		if(style.hasLines())
@@ -128,7 +137,8 @@ public final class PlayerEspHack extends Hack implements UpdateListener,
 				ends.add(new ColoredPoint(point, getColor(e)));
 			}
 			
-			RenderUtils.drawTracers(matrixStack, partialTicks, ends, false);
+			RenderUtils.drawTracersBatched(matrixStack, partialTicks, ends,
+				false);
 		}
 	}
 	

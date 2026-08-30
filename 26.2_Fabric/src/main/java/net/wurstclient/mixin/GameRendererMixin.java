@@ -24,10 +24,17 @@ import net.wurstclient.WurstClient;
 import net.wurstclient.event.EventManager;
 import net.wurstclient.events.CameraTransformViewBobbingListener.CameraTransformViewBobbingEvent;
 import net.wurstclient.hacks.FullbrightHack;
+import net.wurstclient.util.RenderUtils;
 
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin implements AutoCloseable
 {
+	@Inject(method = "close()V", at = @At("HEAD"))
+	private void closeWurstRenderBuffers(CallbackInfo ci)
+	{
+		RenderUtils.closeEspBatch();
+	}
+	
 	/**
 	 * Prevents view bobbing when hacks disable it.
 	 */

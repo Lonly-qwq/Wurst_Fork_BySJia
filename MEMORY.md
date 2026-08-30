@@ -9,6 +9,12 @@
 
 ## 已完成的魔改
 
+### 上游 7.55.1 融合
+
+- 26.2 基线更新为 Wurst 7.55.1, 保留 `Fork-BySJia` 版本标识。
+- `EasyVertexBuffer.createAndUpload()` 现在会关闭临时 `ByteBufferBuilder`, 修复 BaseFinder、CaveFinder、MobSpawnESP、NewChunks、Search 和 Tunneller 重建缓存时的内存泄漏。
+- AltManager 导入 TXT 时只按第一个冒号分隔用户名和密码, 密码中的其余冒号会被完整保留。
+
 ### Search
 
 - `Blocks` 使用和 X-Ray 相同的多选方块列表界面, 支持同时搜索多个方块。
@@ -53,6 +59,15 @@
 ### 稳定性
 
 - 26.2 的 AltRenderer 后台线程使用 daemon platform thread, 避免线程池阻止游戏关闭。
+
+### ESP 渲染性能
+
+- 26.2 的实体 ESP 线框和 Tracer 可在同一个 RenderEvent 中共用一个批次, 相同 `RenderType` 只进行一次上传和一次 draw。
+- 批处理使用可复用的 `StagedVertexBuffer`, 每帧调用 `endFrame()` 回收池, 游戏关闭时显式释放。
+- PlayerESP 增加 `Max render distance` 和视锥剔除。性能验证完成后已移除临时 Debug 设置与计数器。
+- Minecraft 26.2 原版 `ShapeOutlineFeatureRenderer` 同样为每条 AABB 边写入 2 个 `LINES` 输入顶点, 所以 1 个 Box 的 24 个输入顶点属于正常拓扑。
+- Spark 中的 `glDrawElementsInstancedBaseVertex` 时间是采样窗口累计的 CPU 等待位置, 不能单独证明少量线段具有同等 GPU 执行时间。需要使用调试构建分别测试 Box、Tracer、两者同时以及 Iris 开关后再确定最终根因。
+- 2026-08-29 的 iterationRP + Iris + Sodium + Voxy 实测 Profile `h6t8RpcbVQ`: 48.148 秒采样中 `PlayerEspHack.onRender()` 为 40 ms / 0.08%, `drawOutlinedBoxesBatched()` 为 8 ms / 0.02%, `drawTracersBatched()` 为 8 ms / 0.02%。整个 Wurst RenderEvent 为 416 ms / 0.86%, 已低于 5% 目标, `WurstBufferSource` 和对应 OpenGL Draw 不再出现在主要热点中。
 
 ## 关键事件链
 
