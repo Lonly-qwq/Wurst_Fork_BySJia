@@ -70,8 +70,17 @@ public final class ChunkVertexBufferCoordinator extends AbstractChunkCoordinator
 	
 	public Set<Entry<ChunkPos, EasyVertexBuffer>> getBuffers()
 	{
+		// Never wait for workers on the render thread. Bound uploads per frame.
+		int remaining = 2;
 		for(ChunkSearcher searcher : searchers.values())
+		{
+			if(!searcher.isDone() || searcher.isInterrupted()
+				|| buffers.containsKey(searcher.getPos()))
+				continue;
 			buildBuffer(searcher);
+			if(--remaining == 0)
+				break;
+		}
 		
 		return Collections.unmodifiableSet(buffers.entrySet());
 	}

@@ -122,6 +122,11 @@ public final class ChunkSearcher
 		future.cancel(true);
 	}
 	
+	public boolean isForChunk(Chunk currentChunk)
+	{
+		return chunk == currentChunk;
+	}
+	
 	public boolean isInterrupted()
 	{
 		return interrupted;

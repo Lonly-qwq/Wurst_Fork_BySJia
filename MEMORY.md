@@ -99,3 +99,15 @@ ClientPlayerInteractionManager.updateBlockBreakingProgress()
 - 历史起点是 `Initial Wurst Fork BySJia`。
 - 本次提交包含 1.20.1 已有魔改、完整 26.2 工程、忽略规则以及本项目文档。
 - 不主动执行 `git push`。
+
+## 2026-09-05 代码审查修复
+
+- 两个版本的 MobSpawnESP 区块缓存只处理完成的扫描，每帧最多上传两个新区块，渲染线程不再等待扫描结果。
+- 两个版本的区块协调器按当前加载区块的对象身份清理卸载、替换和旧世界区块；Search 同时清除失效渲染缓存。
+- 26.2 ChunkSearcher 的取消标志恢复 volatile。
+- 26.2 Search 使用不可变目标 Block 集合和分段筛选，后台扫描不再访问可变设置列表。
+- 两个版本的 Search 在结果准备完毕、缓存有效时跳过重复集合处理。
+- 26.2 Search 材质模式不再构建隐藏方框顶点；增加 Texture render distance（默认 128 格）、视锥筛选和最多 16384 条的模型 LRU 缓存。模型或方块状态变化时重建；光照仍逐帧读取，模式切换/关闭/区块移除时释放缓存。
+- 两个版本的 FastBreak Normal/Animated 都遵守 Activation chance，0% 不触发；旧版此前明确仅支持 Normal，本次统一行为和说明。
+- 两个版本 BoatFly Safe 在平滑计算后约束最终水平向量长度和垂直速度，防止外部速度或档位切换越过上限。
+- 上述修复尚未进行游戏内光影兼容和帧耗时实测。

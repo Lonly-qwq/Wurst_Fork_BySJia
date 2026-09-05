@@ -11,6 +11,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ForkJoinPool;
@@ -26,6 +30,7 @@ import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.SubmitNodeCollection;
 import net.minecraft.client.renderer.block.BlockModelRenderState;
 import net.minecraft.client.renderer.block.dispatch.BlockStateModel;
+import net.minecraft.client.renderer.block.dispatch.BlockStateModelPart;
 import net.minecraft.client.renderer.feature.BlockModelFeatureRenderer;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
@@ -33,6 +38,8 @@ import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.phys.AABB;
 import net.wurstclient.Category;
 import net.wurstclient.SearchTags;
 import net.wurstclient.WurstRenderLayers;
@@ -67,6 +74,21 @@ public final class SearchHack extends Hack
 		"The blocks to search for. You can select multiple blocks.",
 		"minecraft:diamond_ore");
 	private ArrayList<String> lastBlocks;
+	private Set<Block> targetBlocks = Set.of();
+	private final Map<BlockPos, TextureModel> textureModels =
+		new LinkedHashMap<>(256, 0.75F, true)
+		{
+			@Override
+			protected boolean removeEldestEntry(
+				Map.Entry<BlockPos, TextureModel> eldest)
+			{
+				return size() > 16384;
+			}
+		};
+	private final SliderSetting textureDistance =
+		new SliderSetting("Texture render distance",
+			"Maximum distance for Search block textures.", 128, 16, 512, 16,
+			ValueDisplay.INTEGER.withSuffix(" blocks"));
 	
 	private final CheckboxSetting showTextures = new CheckboxSetting(
 		"Show block textures",
@@ -117,6 +139,7 @@ public final class SearchHack extends Hack
 	private final HashSet<BlockPos> matchingBlocks = new HashSet<>();
 	private volatile List<BlockPos> renderBlocksSnapshot = List.of();
 	private int candidateIndex;
+	private boolean matchesPrepared;
 	private int lastCompletedSearcherCount;
 	private volatile long buildGeneration;
 	private long compileVerticesTaskGeneration;
@@ -133,6 +156,7 @@ public final class SearchHack extends Hack
 		setCategory(Category.RENDER);
 		addSetting(blocks);
 		addSetting(showTextures);
+		addSetting(textureDistance);
 		addSetting(textureBrightness);
 		addSetting(fullbrightExposure);
 		addSetting(onlyExposed);
@@ -150,7 +174,7 @@ public final class SearchHack extends Hack
 	protected void onEnable()
 	{
 		lastBlocks = new ArrayList<>(blocks.getBlockNames());
-		coordinator.setQuery(this::matchesBlock);
+		updateTargetBlocks();
 		prevOnlyExposed = onlyExposed.isChecked();
 		prevShowTextures = showTextures.isChecked();
 		prevLimit = limit.getValueI();
@@ -182,6 +206,7 @@ public final class SearchHack extends Hack
 		vertexBuffer = null;
 		bufferRegion = null;
 		renderBlocksSnapshot = List.of();
+		textureModels.clear();
 	}
 	
 	@Override
@@ -195,12 +220,14 @@ public final class SearchHack extends Hack
 		if(!currentBlocks.equals(lastBlocks))
 		{
 			lastBlocks = currentBlocks;
-			coordinator.setQuery(this::matchesBlock);
+			updateTargetBlocks();
 			searchersChanged = true;
 		}
 		
 		if(coordinator.update())
 			searchersChanged = true;
+		if(coordinator.hasRemovedChunks())
+			clearRenderCache();
 		
 		int completedSearcherCount = coordinator.getCompletedSearcherCount();
 		boolean searchProgressed =
@@ -215,7 +242,8 @@ public final class SearchHack extends Hack
 		if(showTextures.isChecked() != prevShowTextures)
 		{
 			prevShowTextures = showTextures.isChecked();
-			MC.levelExtractor.allChanged();
+			searchersChanged = true;
+			clearRenderCache();
 		}
 		
 		// check if limit has changed
@@ -231,7 +259,7 @@ public final class SearchHack extends Hack
 		else if(searchProgressed)
 			restartBuildingBuffer();
 		
-		if(completedSearcherCount == 0)
+		if(bufferUpToDate || completedSearcherCount == 0)
 			return;
 		
 		// build the buffer
@@ -245,6 +273,17 @@ public final class SearchHack extends Hack
 		if(!prepareMatchingBlocks())
 			return;
 		
+		if(showTextures.isChecked())
+		{
+			if(!matchingBlocks.isEmpty() || coordinator.isDone())
+			{
+				renderBlocksSnapshot = List.copyOf(matchingBlocks);
+				textureModels.keySet().retainAll(matchingBlocks);
+			}
+			bufferUpToDate = true;
+			return;
+		}
+		
 		if(compileVerticesTask == null)
 			startCompileVerticesTask();
 		
@@ -255,9 +294,16 @@ public final class SearchHack extends Hack
 			setBufferFromTask();
 	}
 	
+	private void updateTargetBlocks()
+	{
+		targetBlocks = lastBlocks.stream().map(BlockUtils::getBlockFromNameOrID)
+			.filter(Objects::nonNull).collect(Collectors.toUnmodifiableSet());
+		coordinator.setTargetBlocks(targetBlocks);
+	}
+	
 	private boolean matchesBlock(BlockPos pos, BlockState state)
 	{
-		return blocks.contains(state.getBlock());
+		return targetBlocks.contains(state.getBlock());
 	}
 	
 	public void submitTextureModels(PoseStack matrixStack,
@@ -284,26 +330,45 @@ public final class SearchHack extends Hack
 				0xFF000000 | (exposure << 16) | (exposure << 8) | exposure;
 		}
 		
+		double maxDistanceSq = textureDistance.getValueSq();
 		for(BlockPos pos : renderBlocksSnapshot)
 		{
+			double dx = pos.getX() + 0.5 - camera.pos.x();
+			double dy = pos.getY() + 0.5 - camera.pos.y();
+			double dz = pos.getZ() + 0.5 - camera.pos.z();
+			if(dx * dx + dy * dy + dz * dz > maxDistanceSq
+				|| !MC.level.hasChunk(pos.getX() >> 4, pos.getZ() >> 4)
+				|| !RenderUtils.isVisible(new AABB(pos).inflate(0.5)))
+				continue;
 			BlockState state = MC.level.getBlockState(pos);
 			if(!matchesBlock(pos, state))
 				continue;
 			
 			BlockStateModel model =
 				MC.getModelManager().getBlockStateModelSet().get(state);
-			BlockModelRenderState renderState = new BlockModelRenderState();
-			java.util.List<net.minecraft.client.renderer.block.dispatch.BlockStateModelPart> parts =
-				renderState.setupModel(new org.joml.Matrix4f(), false);
-			model.collectParts(
-				renderState.scratchRandomSource(state.getSeed(pos)), parts);
+			TextureModel cached = textureModels.get(pos);
+			// Model identity changes on resource reload; state/position retain
+			// the original deterministic model variants.
+			if(cached == null || cached.state() != state
+				|| cached.model() != model)
+			{
+				BlockModelRenderState renderState = new BlockModelRenderState();
+				List<BlockStateModelPart> modelParts =
+					renderState.setupModel(new org.joml.Matrix4f(), false);
+				model.collectParts(
+					renderState.scratchRandomSource(state.getSeed(pos)),
+					modelParts);
+				cached = new TextureModel(state, model, List.copyOf(modelParts),
+					renderState.tintLayers().toIntArray());
+				textureModels.put(pos, cached);
+			}
+			List<BlockStateModelPart> parts = cached.parts();
 			int lightCoords = LightCoordsUtil.getLightCoords(MC.level, pos);
 			if(shaderPackInUse && !fullbright)
 				lightCoords = LightCoordsUtil.withBlock(lightCoords,
 					Math.max(LightCoordsUtil.block(lightCoords),
 						BALANCED_SHADER_LIGHT_FLOOR));
-			renderState.blockLightCoords = lightCoords;
-			int[] tintLayers = renderState.tintLayers().toIntArray();
+			int[] tintLayers = cached.tints();
 			
 			matrixStack.pushPose();
 			matrixStack.translate(pos.getX() - camera.pos.x(),
@@ -351,6 +416,16 @@ public final class SearchHack extends Hack
 		matrixStack.popPose();
 	}
 	
+	private void clearRenderCache()
+	{
+		if(vertexBuffer != null)
+			vertexBuffer.close();
+		vertexBuffer = null;
+		bufferRegion = null;
+		renderBlocksSnapshot = List.of();
+		textureModels.clear();
+	}
+	
 	private void stopBuildingBuffer()
 	{
 		restartBuildingBuffer();
@@ -372,6 +447,7 @@ public final class SearchHack extends Hack
 		compileVerticesTask = null;
 		
 		candidateBlocks = null;
+		matchesPrepared = false;
 		matchingBlocks.clear();
 		candidateIndex = 0;
 		
@@ -405,6 +481,9 @@ public final class SearchHack extends Hack
 	
 	private boolean prepareMatchingBlocks()
 	{
+		if(matchesPrepared)
+			return true;
+		
 		if(candidateBlocks == null)
 		{
 			try
@@ -424,6 +503,7 @@ public final class SearchHack extends Hack
 		if(!onlyExposed.isChecked())
 		{
 			matchingBlocks.addAll(candidateBlocks);
+			matchesPrepared = true;
 			updateNotification(limitValue);
 			return true;
 		}
@@ -442,6 +522,7 @@ public final class SearchHack extends Hack
 			return false;
 		
 		updateNotification(limitValue);
+		matchesPrepared = true;
 		return true;
 	}
 	
@@ -518,6 +599,10 @@ public final class SearchHack extends Hack
 		bufferUpToDate = true;
 		bufferRegion = region;
 	}
+	
+	private record TextureModel(BlockState state, BlockStateModel model,
+		List<BlockStateModelPart> parts, int[] tints)
+	{}
 	
 	private enum TextureBrightness
 	{

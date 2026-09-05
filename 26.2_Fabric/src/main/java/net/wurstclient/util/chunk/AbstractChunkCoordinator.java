@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -35,6 +36,7 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 	protected final ChunkAreaSetting area;
 	private BiPredicate<BlockPos, BlockState> query;
 	private Predicate<BlockState> sectionPredicate;
+	private boolean removedChunks;
 	
 	protected final Set<ChunkPos> chunksToUpdate =
 		Collections.synchronizedSet(new HashSet<>());
@@ -51,6 +53,11 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 		DimensionType dimension = WurstClient.MC.level.dimensionType();
 		HashSet<ChunkPos> chunkUpdates = clearChunksToUpdate();
 		boolean searchersChanged = false;
+		removedChunks = false;
+		ArrayList<ChunkAccess> chunks = area.getChunksInRange();
+		HashMap<ChunkPos, ChunkAccess> loadedChunks = new HashMap<>();
+		for(ChunkAccess chunk : chunks)
+			loadedChunks.put(chunk.getPos(), chunk);
 		
 		// remove outdated ChunkSearchers
 		for(ChunkSearcher searcher : new ArrayList<>(searchers.values()))
@@ -58,8 +65,14 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 			boolean remove = false;
 			ChunkPos searcherPos = searcher.getPos();
 			
+			// Unloaded, replaced, or from a previous world.
+			if(!searcher.isForChunk(loadedChunks.get(searcherPos)))
+			{
+				remove = true;
+				removedChunks = true;
+			}
 			// wrong dimension
-			if(dimension != searcher.getDimension())
+			else if(dimension != searcher.getDimension())
 				remove = true;
 			
 			// out of range
@@ -80,7 +93,6 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 		}
 		
 		ChunkPos center = WurstClient.MC.player.chunkPosition();
-		ArrayList<ChunkAccess> chunks = area.getChunksInRange();
 		chunks.sort(Comparator.comparingInt(
 			chunk -> ChunkUtils.getManhattanDistance(center, chunk.getPos())));
 		
@@ -99,6 +111,11 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 		}
 		
 		return searchersChanged;
+	}
+	
+	public boolean hasRemovedChunks()
+	{
+		return removedChunks;
 	}
 	
 	protected void onRemove(ChunkSearcher searcher)
@@ -151,6 +168,13 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 	{
 		setQuery((pos, state) -> block == state.getBlock());
 		sectionPredicate = state -> block == state.getBlock();
+	}
+	
+	public void setTargetBlocks(Set<Block> blocks)
+	{
+		Set<Block> snapshot = Set.copyOf(blocks);
+		setQuery((pos, state) -> snapshot.contains(state.getBlock()));
+		sectionPredicate = state -> snapshot.contains(state.getBlock());
 	}
 	
 	protected HashSet<ChunkPos> clearChunksToUpdate()

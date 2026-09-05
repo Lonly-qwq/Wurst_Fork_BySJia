@@ -84,6 +84,7 @@ public final class SearchHack extends Hack
 	private ArrayList<BlockPos> candidateBlocks;
 	private final HashSet<BlockPos> matchingBlocks = new HashSet<>();
 	private int candidateIndex;
+	private boolean matchesPrepared;
 	private int lastCompletedSearcherCount;
 	private volatile long buildGeneration;
 	private long compileVerticesTaskGeneration;
@@ -163,6 +164,8 @@ public final class SearchHack extends Hack
 		
 		if(coordinator.update())
 			searchersChanged = true;
+		if(coordinator.hasRemovedChunks())
+			clearRenderCache();
 		
 		int completedSearcherCount = coordinator.getCompletedSearcherCount();
 		boolean searchProgressed =
@@ -189,7 +192,7 @@ public final class SearchHack extends Hack
 		else if(searchProgressed)
 			restartBuildingBuffer();
 		
-		if(completedSearcherCount == 0)
+		if(bufferUpToDate || completedSearcherCount == 0)
 			return;
 		
 		// build the buffer
@@ -235,6 +238,14 @@ public final class SearchHack extends Hack
 		RenderSystem.setShaderColor(1, 1, 1, 1);
 	}
 	
+	private void clearRenderCache()
+	{
+		if(vertexBuffer != null)
+			vertexBuffer.close();
+		vertexBuffer = null;
+		bufferRegion = null;
+	}
+	
 	private void stopBuildingBuffer()
 	{
 		restartBuildingBuffer();
@@ -256,6 +267,7 @@ public final class SearchHack extends Hack
 		compileVerticesTask = null;
 		
 		candidateBlocks = null;
+		matchesPrepared = false;
 		matchingBlocks.clear();
 		candidateIndex = 0;
 		
@@ -293,6 +305,9 @@ public final class SearchHack extends Hack
 	
 	private boolean prepareMatchingBlocks()
 	{
+		if(matchesPrepared)
+			return true;
+		
 		if(candidateBlocks == null)
 		{
 			try
@@ -313,6 +328,7 @@ public final class SearchHack extends Hack
 		if(!onlyExposed.isChecked())
 		{
 			matchingBlocks.addAll(candidateBlocks);
+			matchesPrepared = true;
 			updateNotification(limitValue);
 			return true;
 		}
@@ -331,6 +347,7 @@ public final class SearchHack extends Hack
 			return false;
 		
 		updateNotification(limitValue);
+		matchesPrepared = true;
 		return true;
 	}
 	

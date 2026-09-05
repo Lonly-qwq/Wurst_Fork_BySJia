@@ -33,7 +33,7 @@ public final class FastBreakHack extends Hack
 		"Activation chance",
 		"Only FastBreaks some of the blocks you break with the given chance,"
 			+ " which makes it harder for anti-cheat plugins to detect.\n\n"
-			+ "This setting only affects Normal mode.",
+			+ "This setting does nothing if Legit mode is enabled.",
 		1, 0, 1, 0.01, ValueDisplay.PERCENTAGE);
 	
 	private final EnumSetting<Mode> mode = new EnumSetting<>("Mode",
@@ -120,20 +120,20 @@ public final class FastBreakHack extends Hack
 		if(BlockUtils.isUnbreakable(blockPos))
 			return;
 		
+		if(!blockPos.equals(lastBlockPos))
+		{
+			lastBlockPos = blockPos;
+			fastBreakBlock = random.nextDouble() < activationChance.getValue();
+		}
+		
+		if(!fastBreakBlock)
+			return;
+		
 		if(selectedMode == Mode.ANIMATED)
 		{
 			applyProgressMultiplier(blockPos);
 			return;
 		}
-		
-		if(!blockPos.equals(lastBlockPos))
-		{
-			lastBlockPos = blockPos;
-			fastBreakBlock = random.nextDouble() <= activationChance.getValue();
-		}
-		
-		if(!fastBreakBlock)
-			return;
 		
 		Action action = PlayerActionC2SPacket.Action.STOP_DESTROY_BLOCK;
 		Direction direction = event.getDirection();

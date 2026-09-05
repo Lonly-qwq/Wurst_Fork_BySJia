@@ -118,11 +118,14 @@ public final class FastBreakHack extends Hack
 		if(!blockPos.equals(lastBlockPos))
 		{
 			lastBlockPos = blockPos;
-			fastBreakBlock = random.nextDouble() <= activationChance.getValue();
+			fastBreakBlock = random.nextDouble() < activationChance.getValue();
 		}
 		
 		// Ignore unbreakable blocks to avoid slowdown issue
 		if(BlockUtils.isUnbreakable(blockPos))
+			return;
+		
+		if(!fastBreakBlock)
 			return;
 		
 		if(selectedMode == Mode.ANIMATED)
@@ -130,9 +133,6 @@ public final class FastBreakHack extends Hack
 			applyProgressMultiplier(blockPos);
 			return;
 		}
-		
-		if(!fastBreakBlock)
-			return;
 		
 		Action action = ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK;
 		Direction direction = event.getDirection();

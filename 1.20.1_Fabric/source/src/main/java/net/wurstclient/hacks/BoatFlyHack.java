@@ -153,6 +153,16 @@ public final class BoatFlyHack extends Hack implements UpdateListener
 			approach(velocity.y, targetY, profile.verticalAcceleration);
 		double motionZ =
 			approach(velocity.z, targetZ, profile.horizontalAcceleration);
+		// Clamp the final motion too, including externally applied velocity.
+		double finalHorizontalSpeed = Math.hypot(motionX, motionZ);
+		if(finalHorizontalSpeed > profile.horizontalCap)
+		{
+			double scale = profile.horizontalCap / finalHorizontalSpeed;
+			motionX *= scale;
+			motionZ *= scale;
+		}
+		motionY = MathHelper.clamp(motionY, -profile.verticalCap,
+			profile.verticalCap);
 		vehicle.setVelocity(motionX, motionY, motionZ);
 	}
 	

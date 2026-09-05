@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -35,6 +36,7 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 	protected final ChunkAreaSetting area;
 	private BiPredicate<BlockPos, BlockState> query;
 	private Predicate<BlockState> sectionPredicate;
+	private boolean removedChunks;
 	
 	protected final Set<ChunkPos> chunksToUpdate =
 		Collections.synchronizedSet(new HashSet<>());
@@ -51,6 +53,11 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 		DimensionType dimension = WurstClient.MC.world.getDimension();
 		HashSet<ChunkPos> chunkUpdates = clearChunksToUpdate();
 		boolean searchersChanged = false;
+		removedChunks = false;
+		ArrayList<Chunk> chunks = area.getChunksInRange();
+		HashMap<ChunkPos, Chunk> loadedChunks = new HashMap<>();
+		for(Chunk chunk : chunks)
+			loadedChunks.put(chunk.getPos(), chunk);
 		
 		// remove outdated ChunkSearchers
 		for(ChunkSearcher searcher : new ArrayList<>(searchers.values()))
@@ -58,8 +65,14 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 			boolean remove = false;
 			ChunkPos searcherPos = searcher.getPos();
 			
+			// Unloaded, replaced, or from a previous world.
+			if(!searcher.isForChunk(loadedChunks.get(searcherPos)))
+			{
+				remove = true;
+				removedChunks = true;
+			}
 			// wrong dimension
-			if(dimension != searcher.getDimension())
+			else if(dimension != searcher.getDimension())
 				remove = true;
 			
 			// out of range
@@ -83,7 +96,6 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 		// is
 		// useful even when a large area is still being scanned.
 		ChunkPos center = WurstClient.MC.player.getChunkPos();
-		ArrayList<Chunk> chunks = area.getChunksInRange();
 		chunks.sort(Comparator.comparingInt(
 			chunk -> ChunkUtils.getManhattanDistance(center, chunk.getPos())));
 		
@@ -102,6 +114,11 @@ public abstract class AbstractChunkCoordinator implements ChunkUpdateListener
 		}
 		
 		return searchersChanged;
+	}
+	
+	public boolean hasRemovedChunks()
+	{
+		return removedChunks;
 	}
 	
 	protected void onRemove(ChunkSearcher searcher)

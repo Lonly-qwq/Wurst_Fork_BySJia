@@ -37,7 +37,7 @@ public final class ChunkSearcher
 	private final DimensionType dimension;
 	
 	private CompletableFuture<ArrayList<Result>> future;
-	private boolean interrupted;
+	private volatile boolean interrupted;
 	
 	public ChunkSearcher(BiPredicate<BlockPos, BlockState> query,
 		ChunkAccess chunk, DimensionType dimension)
@@ -118,6 +118,11 @@ public final class ChunkSearcher
 		
 		interrupted = true;
 		future.cancel(true);
+	}
+	
+	public boolean isForChunk(ChunkAccess currentChunk)
+	{
+		return chunk == currentChunk;
 	}
 	
 	public boolean isInterrupted()
